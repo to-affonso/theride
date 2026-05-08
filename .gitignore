@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Cursor/Claude agent worktrees (nested git repos)
+/.claude/
