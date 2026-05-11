@@ -48,6 +48,8 @@ export interface BleState {
   weight: number;
   sessionPowerSeries: number[];
   sessionHrSeries: number[];
+  sessionCadenceSeries: number[];
+  sessionSpeedSeries: number[];
   sessionPaused: boolean;
   log: LogEntry[];
   deviceConfig: Record<DeviceType, DeviceConfig>;
