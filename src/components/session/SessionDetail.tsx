@@ -19,6 +19,9 @@ import { Icons } from '@/components/icons';
 import { HeroStat, HeroSpectrumBand } from '@/components/composites/HeroStat';
 import { InsightList } from '@/components/composites/InsightList';
 import { Tooltip } from '@/components/composites/Tooltip';
+import { TimeSeriesChart } from '@/components/charts/TimeSeriesChart';
+import { PowerCurve } from '@/components/charts/PowerCurve';
+import { ScatterCard } from '@/components/charts/ScatterCard';
 import { POWER_ZONES, HR_ZONES } from '@/lib/zones';
 import { classifyTss, type BestPower } from '@/lib/metrics';
 import {
@@ -31,7 +34,6 @@ import { generateInsights } from '@/lib/insights';
 import { formatClock, formatDateTime } from '@/lib/format';
 
 const ACCENT = '#D5FF00';
-const CHART_LEN = 120;
 
 /** Bands for the TSS spectrum bar — matches `classifyTss()` thresholds. */
 const TSS_BANDS: HeroSpectrumBand[] = [
@@ -104,14 +106,9 @@ export function SessionDetail({
   const hasPowerZones = powerZones.some(z => z.sec > 0);
   const hasHrZones    = hrZones.some(z => z.sec > 0);
 
-  // ── Chart (inline SVG for Sprint 2A; uPlot replaces in Sprint 2B) ─────
-  const chartPower = downsample(session.power_series, CHART_LEN);
-  const chartHR    = downsample(session.hr_series,    CHART_LEN);
-  const maxP = Math.max(...chartPower, 50);
-  const maxH = Math.max(...chartHR, 80);
-  const hasChartData = session.power_series.length > 1;
-  const dPower = chartPower.map((v, i) => `${i === 0 ? 'M' : 'L'}${(i / (CHART_LEN - 1)) * 100} ${100 - (v / maxP) * 100}`).join(' ');
-  const dHR    = chartHR.map((v, i)    => `${i === 0 ? 'M' : 'L'}${(i / (CHART_LEN - 1)) * 100} ${100 - (v / maxH) * 100}`).join(' ');
+  // ── Chart data flags ─────────────────────────────────────────────────
+  const hasChartData  = session.power_series.length > 1 || session.hr_series.length > 1;
+  const hasScatter    = session.power_series.length > 60 && session.hr_series.length > 60;
 
   // ── Best efforts (only if we have data from Sprint 0+ ride) ───────────
   const hasBestPower = session.best_power && Object.keys(session.best_power).length > 0;
@@ -272,67 +269,59 @@ export function SessionDetail({
           {/* Insights */}
           <InsightList insights={insights} />
 
-          {/* Chart + Zones (chart is interim Sprint 2A — Sprint 2B brings uPlot) */}
-          <div className="sum-grid">
+          {/* Time series — uPlot (full-width) */}
+          <div className="chart-card">
+            <div className="chart-head"><h3>Potência & FC ao longo do tempo</h3></div>
+            {hasChartData ? (
+              <div style={{ marginTop: 8 }}>
+                <TimeSeriesChart
+                  powerSeries={session.power_series}
+                  hrSeries={session.hr_series}
+                  durationSeconds={elapsed}
+                  height={240}
+                />
+              </div>
+            ) : (
+              <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--fg-3)', fontSize: 13, fontFamily: "'JetBrains Mono'" }}>
+                Nenhum dado de sessão registrado.
+              </div>
+            )}
+          </div>
+
+          {/* Scatter — HR × Power (decoupling, two-half coloring) */}
+          {hasScatter && (
             <div className="chart-card">
-              <div className="chart-head"><h3>Potência & FC ao longo do tempo</h3></div>
-              {hasChartData ? (
-                <div style={{ height: 230, position: 'relative', marginTop: 6 }}>
-                  <div style={{
-                    position: 'absolute', left: 0, top: 0, bottom: 18, width: 40,
-                    display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-                    fontFamily: "'JetBrains Mono'", fontSize: 10, color: 'var(--fg-3)', textAlign: 'right', paddingRight: 6,
-                  }}>
-                    <span>{Math.round(maxP)}w</span>
-                    <span>{Math.round(maxP * 0.66)}w</span>
-                    <span>{Math.round(maxP * 0.33)}w</span>
-                    <span>0w</span>
-                  </div>
-                  <svg viewBox="0 0 100 100" preserveAspectRatio="none"
-                    style={{ position: 'absolute', left: 42, right: 0, top: 0, bottom: 18, width: 'calc(100% - 42px)', height: 'calc(100% - 18px)' }}>
-                    <defs>
-                      <linearGradient id="sdPGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%"   stopColor={ACCENT} stopOpacity="0.45"/>
-                        <stop offset="100%" stopColor={ACCENT} stopOpacity="0"/>
-                      </linearGradient>
-                    </defs>
-                    {[25, 50, 75].map(y => (
-                      <line key={y} x1="0" y1={y} x2="100" y2={y} stroke="oklch(0.26 0.012 250)" strokeWidth="0.3" vectorEffect="non-scaling-stroke"/>
-                    ))}
-                    <path d={`${dPower} L100 100 L0 100 Z`} fill="url(#sdPGrad)"/>
-                    <path d={dPower} stroke={ACCENT} strokeWidth="0.9" fill="none" vectorEffect="non-scaling-stroke"/>
-                    {session.hr_series.length > 1 && (
-                      <path d={dHR} stroke="var(--accent-2)" strokeWidth="0.9" fill="none" vectorEffect="non-scaling-stroke"/>
-                    )}
-                  </svg>
-                  <div style={{
-                    position: 'absolute', left: 42, right: 0, bottom: 0, height: 18,
-                    display: 'flex', justifyContent: 'space-between',
-                    fontFamily: "'JetBrains Mono'", fontSize: 10, color: 'var(--fg-3)', alignItems: 'center',
-                  }}>
-                    <span>00:00</span>
-                    <span>{formatClock(elapsed)}</span>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ height: 230, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--fg-3)', fontSize: 13, fontFamily: "'JetBrains Mono'" }}>
-                  Nenhum dado de sessão registrado.
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: 18, marginTop: 8, fontSize: 11.5, color: 'var(--fg-2)', fontFamily: "'JetBrains Mono'" }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <i style={{ width: 12, height: 2, background: ACCENT, display: 'inline-block' }}/> Potência (W)
+              <div className="chart-head">
+                <h3>Acoplamento aeróbico</h3>
+                <span style={{ fontFamily: "'JetBrains Mono'", fontSize: 11, color: 'var(--fg-3)' }}>FC × Potência</span>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <ScatterCard
+                  powerSeries={session.power_series}
+                  hrSeries={session.hr_series}
+                  height={200}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 18, marginTop: 8, fontSize: 11, color: 'var(--fg-3)', fontFamily: "'JetBrains Mono'" }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <i style={{ width: 8, height: 8, borderRadius: '50%', background: '#D5FF00', display: 'inline-block' }}/>
+                  1ª metade
                 </span>
-                {session.hr_series.length > 1 && (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <i style={{ width: 12, height: 2, background: 'var(--accent-2)', display: 'inline-block' }}/> FC (bpm)
-                  </span>
-                )}
+                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <i style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF5A1F', display: 'inline-block' }}/>
+                  2ª metade
+                </span>
+                <span style={{ marginLeft: 'auto', color: 'var(--fg-3)', fontSize: 10.5 }}>
+                  deriva vertical = fadiga
+                </span>
               </div>
             </div>
+          )}
 
+          {/* Zone distributions — power + HR side by side */}
+          <div className="sum-grid">
             <div className="chart-card">
-              <div className="chart-head"><h3>Distribuição de zonas — potência</h3></div>
+              <div className="chart-head"><h3>Zonas de potência</h3></div>
               {hasPowerZones ? (
                 <>
                   <div className="zones" style={{ marginTop: 8 }}>
@@ -352,7 +341,7 @@ export function SessionDetail({
                       display: 'flex', justifyContent: 'space-between',
                       fontFamily: "'JetBrains Mono'", fontSize: 11.5, color: 'var(--fg-2)',
                     }}>
-                      <span>Tempo em zona alvo (Z3)</span>
+                      <span>Tempo em Z3</span>
                       <span style={{ color: ACCENT }}>
                         <b>{Math.floor(powerZones[2].sec / 60)}:{String(powerZones[2].sec % 60).padStart(2, '0')}</b>
                         {' '}· {powerZones[2].pct}%
@@ -362,74 +351,99 @@ export function SessionDetail({
                 </>
               ) : (
                 <div style={{ height: 170, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--fg-3)', fontSize: 13, fontFamily: "'JetBrains Mono'" }}>
-                  Sem dados de potência na sessão.
+                  Sem dados de potência.
                 </div>
               )}
             </div>
+
+            {hasHrZones ? (
+              <div className="chart-card">
+                <div className="chart-head"><h3>Zonas de FC</h3></div>
+                <div className="zones" style={{ marginTop: 8 }}>
+                  {hrZones.map(z => (
+                    <div key={z.id} className="zone-row">
+                      <div className="name"><b style={{ color: 'var(--fg)' }}>{z.label}</b> {z.name}</div>
+                      <div className="zone-bar">
+                        <i style={{ width: `${Math.min(100, z.pct * 1.6)}%`, background: z.color }}/>
+                      </div>
+                      <div className="pct">{z.pct}%</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="chart-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ color: 'var(--fg-3)', fontSize: 13, fontFamily: "'JetBrains Mono'" }}>
+                  Sem dados de FC.
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* HR zone distribution (new) */}
-          {hasHrZones && (
-            <div className="chart-card">
-              <div className="chart-head"><h3>Distribuição de zonas — frequência cardíaca</h3></div>
-              <div className="zones" style={{ marginTop: 8 }}>
-                {hrZones.map(z => (
-                  <div key={z.id} className="zone-row">
-                    <div className="name"><b style={{ color: 'var(--fg)' }}>{z.label}</b> {z.name}</div>
-                    <div className="zone-bar">
-                      <i style={{ width: `${Math.min(100, z.pct * 1.6)}%`, background: z.color }}/>
-                    </div>
-                    <div className="pct">{z.pct}%</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Best efforts (MMP) */}
+          {/* Power curve — MMP with PR markers */}
           {hasBestPower && (
             <div className="chart-card">
               <div className="chart-head">
-                <h3>Melhores esforços</h3>
+                <h3>Curva de potência</h3>
                 {prs.length > 0 && (
                   <span style={{ fontFamily: "'JetBrains Mono'", fontSize: 11, color: ACCENT, letterSpacing: '0.08em' }}>
                     {prs.length} {prs.length === 1 ? 'PR' : 'PRs'}
                   </span>
                 )}
               </div>
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
-                {(['5s', '30s', '1min', '5min', '20min', '60min'] as const).map(k => {
-                  const v = session.best_power?.[k];
-                  if (!v) return null;
-                  const isPr = prs.includes(k);
-                  const delta = prDeltas[k];
-                  return (
-                    <div key={k} style={{
-                      flex: '1 1 120px',
-                      padding: '12px 14px',
-                      background: isPr ? 'rgba(213,255,0,0.05)' : 'var(--bg)',
-                      border: `1px solid ${isPr ? 'rgba(213,255,0,0.3)' : 'var(--line-soft)'}`,
-                      borderRadius: 8,
-                      position: 'relative',
-                    }}>
-                      {isPr && (
-                        <span style={{ position: 'absolute', top: 6, right: 8, fontFamily: "'JetBrains Mono'", fontSize: 9, color: ACCENT, letterSpacing: '0.08em' }}>
-                          ⭐ PR
-                        </span>
-                      )}
-                      <div style={{ fontFamily: "'JetBrains Mono'", fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fg-3)' }}>{k}</div>
-                      <div style={{ fontFamily: "'Inter'", fontSize: 20, fontWeight: 800, letterSpacing: '-0.03em', marginTop: 4, color: isPr ? ACCENT : 'var(--fg)' }}>
-                        {v}<small style={{ fontSize: 11, fontWeight: 500, color: 'var(--fg-3)', marginLeft: 4, fontFamily: "'JetBrains Mono'" }}>W</small>
-                      </div>
-                      {isPr && delta !== undefined && delta > 0 && (
-                        <div style={{ fontFamily: "'JetBrains Mono'", fontSize: 10.5, color: ACCENT, marginTop: 4 }}>
-                          +{delta}W vs anterior
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+              <div style={{ marginTop: 8 }}>
+                <PowerCurve
+                  current={session.best_power ?? {}}
+                  historical={historicalBest}
+                  prs={prs}
+                  height={200}
+                />
               </div>
+              <div style={{ display: 'flex', gap: 18, marginTop: 6, fontSize: 11, color: 'var(--fg-3)', fontFamily: "'JetBrains Mono'" }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <i style={{ width: 14, height: 2, background: ACCENT, display: 'inline-block', borderRadius: 1 }}/>
+                  Este treino
+                </span>
+                {Object.keys(historicalBest).length > 0 && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <i style={{ width: 14, height: 2, background: '#555555', display: 'inline-block', borderRadius: 1, borderTop: '2px dashed #555555' }}/>
+                    Melhor histórico
+                  </span>
+                )}
+                {prs.length > 0 && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <i style={{ width: 8, height: 8, borderRadius: '50%', background: ACCENT, display: 'inline-block' }}/>
+                    PR
+                  </span>
+                )}
+              </div>
+
+              {/* PR value pills below the curve */}
+              {prs.length > 0 && (
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line-soft)' }}>
+                  {prs.map(k => {
+                    const v     = session.best_power?.[k];
+                    const delta = prDeltas[k];
+                    if (!v) return null;
+                    return (
+                      <div key={k} style={{
+                        flex: '1 1 100px', padding: '10px 12px',
+                        background: 'rgba(213,255,0,0.05)',
+                        border: '1px solid rgba(213,255,0,0.3)',
+                        borderRadius: 8, position: 'relative',
+                      }}>
+                        <div style={{ fontFamily: "'JetBrains Mono'", fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fg-3)' }}>{k}</div>
+                        <div style={{ fontFamily: "'Inter'", fontSize: 20, fontWeight: 800, letterSpacing: '-0.03em', marginTop: 2, color: ACCENT }}>
+                          {v}<small style={{ fontSize: 11, fontWeight: 500, color: 'var(--fg-3)', marginLeft: 3, fontFamily: "'JetBrains Mono'" }}>W</small>
+                        </div>
+                        {delta != null && delta > 0 && (
+                          <div style={{ fontFamily: "'JetBrains Mono'", fontSize: 10, color: ACCENT, marginTop: 2 }}>+{delta}W</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -461,11 +475,3 @@ export function SessionDetail({
   );
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-function downsample(arr: number[], target: number): number[] {
-  if (arr.length === 0) return new Array(target).fill(0);
-  if (arr.length <= target) return arr;
-  const step = arr.length / target;
-  return Array.from({ length: target }, (_, i) => arr[Math.min(arr.length - 1, Math.floor(i * step))]);
-}

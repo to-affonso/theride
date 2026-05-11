@@ -725,3 +725,19 @@ button { font-family: inherit; }
 .menu-link.danger { color: var(--warn); }
 .menu-link.danger:hover { background: rgba(255,90,31,.08); }
 .menu-divider { height: 1px; background: var(--line-soft); margin: 4px 0; }
+
+/* ── uPlot base styles (inlined — avoids CSS module import from node_modules) */
+.uplot,.uplot *,.uplot *::before,.uplot *::after{box-sizing:border-box}
+.uplot{font-family:inherit;line-height:1.5;width:min-content}
+.u-wrap{position:relative;user-select:none}
+.u-over,.u-under{position:absolute}
+.u-under{overflow:hidden}
+.uplot canvas{display:block;position:relative;width:100%;height:100%}
+.u-axis{position:absolute}
+.u-legend{display:none}
+.u-cursor-x,.u-cursor-y{position:absolute;left:0;top:0;pointer-events:none;will-change:transform}
+.u-hz .u-cursor-x,.u-vt .u-cursor-y{height:100%;border-right:1px dashed rgba(255,255,255,0.22)}
+.u-hz .u-cursor-y,.u-vt .u-cursor-x{width:100%;border-bottom:1px dashed rgba(255,255,255,0.22)}
+.u-cursor-pt{position:absolute;top:0;left:0;border-radius:50%;pointer-events:none;will-change:transform;background-clip:padding-box !important}
+.u-axis.u-off,.u-select.u-off,.u-cursor-x.u-off,.u-cursor-y.u-off,.u-cursor-pt.u-off{display:none}
+.u-select{background:rgba(213,255,0,0.06);position:absolute;pointer-events:none}
