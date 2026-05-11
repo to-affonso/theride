@@ -82,7 +82,7 @@ export default function HistoryDetailPage() {
       mode="history"
       headerActions={
         <button className="btn" onClick={() => router.push('/history')}>
-          ← Histórico
+          Voltar
         </button>
       }
     />

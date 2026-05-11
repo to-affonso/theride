@@ -16,8 +16,9 @@
 import { ReactNode, useMemo } from 'react';
 import { Session, Athlete } from '@/types';
 import { Icons } from '@/components/icons';
-import { HeroStat } from '@/components/composites/HeroStat';
+import { HeroStat, HeroSpectrumBand } from '@/components/composites/HeroStat';
 import { InsightList } from '@/components/composites/InsightList';
+import { Tooltip } from '@/components/composites/Tooltip';
 import { POWER_ZONES, HR_ZONES } from '@/lib/zones';
 import { classifyTss, type BestPower } from '@/lib/metrics';
 import {
@@ -31,6 +32,16 @@ import { formatClock, formatDateTime } from '@/lib/format';
 
 const ACCENT = '#D5FF00';
 const CHART_LEN = 120;
+
+/** Bands for the TSS spectrum bar — matches `classifyTss()` thresholds. */
+const TSS_BANDS: HeroSpectrumBand[] = [
+  { label: 'Recup.',   min: 0,   max: 50       },
+  { label: 'Moderado', min: 50,  max: 100      },
+  { label: 'Mod-alto', min: 100, max: 150      },
+  { label: 'Intenso',  min: 150, max: 250      },
+  { label: 'Épico',    min: 250, max: 400      },
+  { label: 'Extremo',  min: 400, max: Infinity },
+];
 
 interface SessionDetailProps {
   session: Session;
@@ -136,18 +147,81 @@ export function SessionDetail({
           {/* Hero stat — TSS protagonist */}
           <HeroStat
             value={session.tss > 0 ? session.tss : '—'}
-            label="TSS"
-            secondary={
-              <>
-                {session.normalized_power && <>NP <b>{session.normalized_power}W</b> · </>}
-                IF <b>{iF > 0 ? iF.toFixed(2) : '—'}</b>
-                {vi > 0 && <> · VI <b>{vi.toFixed(2)}</b></>}
-              </>
+            label={
+              <Tooltip
+                width={260}
+                content={
+                  <>
+                    <strong>TSS — Training Stress Score</strong>
+                    <br/>Carga total do treino combinando intensidade e duração.
+                    Referência: <em>100 TSS = 1h ao seu FTP</em>.
+                  </>
+                }
+              >
+                TSS
+              </Tooltip>
             }
             classification={session.tss > 0 ? tssClass.label : undefined}
             recovery={session.tss > 0 ? `Recuperação estimada ${tssClass.recoveryHoursMin}–${tssClass.recoveryHoursMax}h` : undefined}
+            secondary={
+              <>
+                {session.normalized_power && (
+                  <span>
+                    <Tooltip
+                      width={280}
+                      content={
+                        <>
+                          <strong>NP — Normalized Power</strong>
+                          <br/>Estimativa da potência metabolicamente equivalente em esforço variável.
+                          <br/>Pondera picos mais que potência média — reflete melhor o custo fisiológico.
+                        </>
+                      }
+                    >
+                      NP
+                    </Tooltip>
+                    {' '}<b>{session.normalized_power}W</b>
+                  </span>
+                )}
+                <span>
+                  <Tooltip
+                    width={260}
+                    content={
+                      <>
+                        <strong>IF — Intensity Factor</strong>
+                        <br/>Razão entre NP e seu FTP. <em>1.0 = esforço de 1h no limite</em>.
+                        <br/>Acima de 0.95 indica race effort.
+                      </>
+                    }
+                  >
+                    IF
+                  </Tooltip>
+                  {' '}<b>{iF > 0 ? iF.toFixed(2) : '—'}</b>
+                </span>
+                {vi > 0 && (
+                  <span>
+                    <Tooltip
+                      width={280}
+                      content={
+                        <>
+                          <strong>VI — Variability Index</strong>
+                          <br/>NP dividido pela potência média.
+                          <br/><em>1.00–1.05</em> = treino estável (base).
+                          {' '}<em>&gt; 1.10</em> = surgy (intervalos / race).
+                        </>
+                      }
+                    >
+                      VI
+                    </Tooltip>
+                    {' '}<b>{vi.toFixed(2)}</b>
+                  </span>
+                )}
+              </>
+            }
             highlight={highlight}
             highlightVariant={highlightVariant}
+            spectrumValue={session.tss}
+            spectrumBands={TSS_BANDS}
+            spectrumLabel="Posição na escala de TSS"
           />
 
           {/* Stats grid (TSS dropped here — already in hero) */}
