@@ -46,12 +46,12 @@ export function DeviceModal({ onClose }: { onClose: () => void }) {
   return (
     <>
       {/* Backdrop */}
-      <div style={{ position: 'fixed', inset: 0, zIndex: 199 }} onClick={onClose}/>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 1100 }} onClick={onClose}/>
 
-      {/* Panel */}
+      {/* Panel — above chrome (1050) so backdrop covers it correctly */}
       <div
         style={{
-          position: 'fixed', top: 58, right: 16, zIndex: 200,
+          position: 'fixed', top: 58, right: 16, zIndex: 1101,
           width: 316, background: 'var(--bg-2)',
           border: '1px solid var(--line-soft)', borderRadius: 12,
           boxShadow: '0 8px 40px rgba(0,0,0,0.55)',

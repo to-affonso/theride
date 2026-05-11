@@ -40,7 +40,9 @@ button { font-family: inherit; }
 .chrome {
   position: absolute; inset: 0 0 auto 0; height: 64px;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 28px; z-index: 50; background: transparent;
+  padding: 0 28px; z-index: 1050; background: transparent;
+  /* z-index 1050 puts chrome (and its absolute children like .pop-anchor)
+     above Leaflet's internal stacking (which reaches z:1000 on controls). */
 }
 .chrome-left  { display: flex; align-items: center; gap: 14px; min-height: 40px; }
 .brand        { display: flex; align-items: center; gap: 10px; }
