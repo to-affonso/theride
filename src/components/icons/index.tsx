@@ -148,9 +148,52 @@ function Symbol() {
   );
 }
 
+function Trophy({ size = 16, c = 'currentColor' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 4h10v5a5 5 0 0 1-10 0V4Z"/>
+      <path d="M7 6H4v2a3 3 0 0 0 3 3"/>
+      <path d="M17 6h3v2a3 3 0 0 1-3 3"/>
+      <path d="M12 14v3"/>
+      <path d="M9 21h6"/>
+      <path d="M10 17h4"/>
+    </svg>
+  );
+}
+
+function Info({ size = 16, c = 'currentColor' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M12 16v-4"/>
+      <circle cx="12" cy="8.5" r="0.6" fill={c}/>
+    </svg>
+  );
+}
+
+function Alert({ size = 16, c = 'currentColor' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3.5L2.5 20.5h19L12 3.5Z"/>
+      <path d="M12 10v4.5"/>
+      <circle cx="12" cy="17.5" r="0.6" fill={c}/>
+    </svg>
+  );
+}
+
+function CheckCircle({ size = 16, c = 'currentColor' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M8 12.5l2.5 2.5L16 9.5"/>
+    </svg>
+  );
+}
+
 export const Icons = {
   Trainer, Cadence, Speed, Heart, Power,
   Bluetooth, Pin, Play, Pause, Stop,
   Plus, Search, Arrow, Settings, Symbol,
   Pencil, Check, Upload,
+  Trophy, Info, Alert, CheckCircle,
 };

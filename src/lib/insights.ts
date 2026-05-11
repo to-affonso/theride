@@ -12,12 +12,14 @@ import { decoupling } from './metrics/decoupling';
 import type { MmpKey } from './metrics';
 
 export type InsightVariant = 'positive' | 'neutral' | 'caution';
+export type InsightIconKind = 'trophy' | 'check' | 'info' | 'alert';
 
 export interface Insight {
   id: string;
   variant: InsightVariant;
   text: string;
-  emoji?: string;
+  /** Overrides the variant's default icon (e.g. trophy for PRs). */
+  icon?: InsightIconKind;
   priority: number; // higher = shown first
 }
 
@@ -59,7 +61,7 @@ export function generateInsights(ctx: InsightContext): Insight[] {
     out.push({
       id: `pr-${k}`,
       variant: 'positive',
-      emoji: '⭐',
+      icon: 'trophy',
       text: delta !== undefined && delta > 0
         ? `Novo PR de ${label}: ${value}W (+${delta}W vs seu melhor anterior).`
         : `Novo PR de ${label}: ${value}W.`,
