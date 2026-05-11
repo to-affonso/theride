@@ -410,3 +410,96 @@ button { font-family: inherit; }
   border: 1px solid rgba(255,90,31,.25); border-radius: 8px;
   font-size: 12px; color: var(--warn); margin-bottom: 14px;
 }
+
+/* ── HISTORY screen ─────────────────────────────────────────────────────── */
+.history { padding: 28px 36px 0 48px; display: flex; flex-direction: column; gap: 22px; height: 100%; overflow: hidden; }
+.history-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-shrink: 0; }
+.history-head h1 { margin: 0; }
+.history-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 18px; padding-bottom: 28px; padding-right: 8px; }
+
+.period-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.period-summary {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px;
+  background: var(--bg-2); border: 1px solid var(--line-soft); border-radius: 12px;
+  padding: 18px 22px;
+}
+.period-summary .ps-cell { display: flex; flex-direction: column; gap: 4px; }
+.period-summary .ps-lbl { font-family: 'JetBrains Mono'; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-3); }
+.period-summary .ps-val { font-family: 'Inter'; font-size: 24px; font-weight: 800; letter-spacing: -0.03em; }
+.period-summary .ps-val small { font-size: 12px; font-weight: 500; color: var(--fg-3); margin-left: 4px; font-family: 'JetBrains Mono'; }
+
+.day-divider {
+  display: flex; align-items: center; gap: 10px;
+  font-family: 'JetBrains Mono'; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-3);
+  margin-top: 6px;
+}
+.day-divider::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
+
+.workout-list { display: flex; flex-direction: column; gap: 8px; }
+
+.workout-item {
+  display: grid; grid-template-columns: 1fr 140px 100px;
+  align-items: center; gap: 18px;
+  padding: 16px 20px;
+  background: var(--bg-2); border: 1px solid var(--line-soft); border-radius: 12px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.workout-item:hover { border-color: var(--line); background: var(--bg-3); }
+.workout-item .wi-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.workout-item .wi-title { font-family: 'Inter'; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workout-item .wi-meta {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  font-family: 'JetBrains Mono'; font-size: 11px; color: var(--fg-2);
+}
+.workout-item .wi-meta b { color: var(--fg); font-weight: 600; }
+.workout-item .wi-meta .sep { color: var(--fg-3); }
+
+.workout-item .wi-spark { display: flex; align-items: center; justify-content: center; }
+
+.workout-item .wi-side {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+}
+.zone-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: 'JetBrains Mono'; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-2);
+  padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line-soft); background: var(--bg);
+}
+.zone-badge i { width: 6px; height: 6px; border-radius: 999px; display: inline-block; }
+
+.pr-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: 'JetBrains Mono'; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--on-accent); background: var(--accent);
+  padding: 3px 7px; border-radius: 6px; font-weight: 700;
+}
+
+.history-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 64px 24px; text-align: center;
+  background: var(--bg-2); border: 1px solid var(--line-soft); border-radius: 12px;
+  color: var(--fg-2);
+}
+.history-empty .he-icon { width: 64px; height: 64px; border-radius: 14px; background: var(--bg-3); display: grid; place-items: center; }
+.history-empty h2 { font-family: 'Inter'; font-size: 20px; font-weight: 700; margin: 0; color: var(--fg); }
+.history-empty p { margin: 0; font-size: 13px; max-width: 380px; }
+
+.workout-skeleton {
+  height: 78px; background: linear-gradient(90deg, var(--bg-2) 0%, var(--bg-3) 50%, var(--bg-2) 100%);
+  background-size: 200% 100%; border-radius: 12px; border: 1px solid var(--line-soft);
+  animation: shimmer 1.6s linear infinite;
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* Menu in avatar popover */
+.menu-link {
+  display: grid; grid-template-columns: 18px 1fr; gap: 12px; align-items: center;
+  padding: 11px 12px; border-radius: 8px; color: var(--fg-2); font-size: 13.5px;
+  cursor: pointer; background: transparent; border: 0; width: 100%; text-align: left;
+  font-family: inherit;
+}
+.menu-link:hover { background: var(--bg-3); color: var(--fg); }
+.menu-link.danger { color: var(--warn); }
+.menu-link.danger:hover { background: rgba(255,90,31,.08); }
+.menu-divider { height: 1px; background: var(--line-soft); margin: 4px 0; }

@@ -8,6 +8,7 @@ import { Icons } from '@/components/icons';
 import { DeviceModal } from '@/components/DeviceModal';
 import LiveMap from '@/components/LiveMap';
 import { gradeAt, positionAt } from '@/lib/gpx';
+import { getPowerZone } from '@/lib/zones';
 
 const ACCENT = '#D5FF00';
 
@@ -120,20 +121,7 @@ function SyntheticMapCanvas({ progress }: { progress: number }) {
   );
 }
 
-// ── Power zones ───────────────────────────────────────────────────────────────
-const ZONE_CONFIG = [
-  { label: 'Z1', color: 'oklch(0.5 0.05 250)',  max: 0.55 },
-  { label: 'Z2', color: 'oklch(0.7 0.14 180)',  max: 0.75 },
-  { label: 'Z3', color: 'oklch(0.78 0.18 60)',  max: 0.90 },
-  { label: 'Z4', color: 'oklch(0.7 0.2 340)',   max: 1.05 },
-  { label: 'Z5', color: 'oklch(0.65 0.22 25)',  max: 1.20 },
-  { label: 'Z6', color: ACCENT,                  max: 99   },
-];
-
-function getPowerZone(power: number, ftp: number) {
-  const pct = power / ftp;
-  return ZONE_CONFIG.find(z => pct < z.max) ?? ZONE_CONFIG[5];
-}
+// Power zones imported from @/lib/zones (single source of truth — see design-system.md).
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function LivePage() {

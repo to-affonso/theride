@@ -104,6 +104,14 @@ export const useBleStore = create<BleStore>((set, get) => {
           const hs = [...s.sessionHrSeries, value];
           next.sessionHrSeries = hs.length > 3600 ? hs.slice(-3600) : hs;
         }
+        if (metric === 'cadence' && value >= 0) {
+          const cs = [...s.sessionCadenceSeries, value];
+          next.sessionCadenceSeries = cs.length > 3600 ? cs.slice(-3600) : cs;
+        }
+        if (metric === 'speed' && value >= 0) {
+          const ss = [...s.sessionSpeedSeries, value];
+          next.sessionSpeedSeries = ss.length > 3600 ? ss.slice(-3600) : ss;
+        }
       }
 
       const ph = [...s.powerHistory.slice(1), next.power ?? 0];
@@ -269,6 +277,7 @@ export const useBleStore = create<BleStore>((set, get) => {
     sessionStart: null, elapsed: 0,
     ftp: 258, weight: 72.4,
     sessionPowerSeries: [], sessionHrSeries: [],
+    sessionCadenceSeries: [], sessionSpeedSeries: [],
     sessionPaused: false,
     ergEnabled: false,
     log: [],
@@ -287,6 +296,7 @@ export const useBleStore = create<BleStore>((set, get) => {
         hrSum: 0,    hrSamples: 0,
         calories: 0, distanceKm: 0,
         sessionPowerSeries: [], sessionHrSeries: [],
+        sessionCadenceSeries: [], sessionSpeedSeries: [],
       });
     },
 

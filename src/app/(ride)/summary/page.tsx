@@ -1,45 +1,49 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useBleStore } from '@/stores/bleStore';
 import { useRouteStore } from '@/stores/routeStore';
 import { useAthleteStore } from '@/stores/athleteStore';
 import { createClient } from '@/lib/supabase/client';
 import { Icons } from '@/components/icons';
+import { POWER_ZONES } from '@/lib/zones';
+import { computeSessionAggregates } from '@/lib/metrics';
 
 const ACCENT = '#D5FF00';
-
-const ZONE_META = [
-  { name:'Z1', label:'Recuperação', color:'oklch(0.5 0.05 250)',  max: 0.55 },
-  { name:'Z2', label:'Endurance',   color:'oklch(0.7 0.14 180)',  max: 0.75 },
-  { name:'Z3', label:'Tempo',       color:'oklch(0.78 0.18 60)',  max: 0.90 },
-  { name:'Z4', label:'Limiar',      color:'oklch(0.7 0.2 340)',   max: 1.05 },
-  { name:'Z5', label:'VO2 Máx',    color:'oklch(0.65 0.22 25)',  max: 99   },
-];
 
 export default function SummaryPage() {
   const router  = useRouter();
   const saved   = useRef(false);
 
-  const powerSum           = useBleStore(s => s.powerSum);
-  const powerSamples       = useBleStore(s => s.powerSamples);
-  const hrSum              = useBleStore(s => s.hrSum);
-  const hrSamples          = useBleStore(s => s.hrSamples);
-  const calories           = useBleStore(s => s.calories);
-  const distanceKm         = useBleStore(s => s.distanceKm);
-  const elapsed            = useBleStore(s => s.elapsed);
-  const ftp                = useBleStore(s => s.ftp);
-  const sessionPowerSeries = useBleStore(s => s.sessionPowerSeries);
-  const sessionHrSeries    = useBleStore(s => s.sessionHrSeries);
-  const devices            = useBleStore(s => s.devices);
-  const resetSession       = useBleStore(s => s.resetSession);
+  const distanceKm            = useBleStore(s => s.distanceKm);
+  const elapsed               = useBleStore(s => s.elapsed);
+  const ftp                   = useBleStore(s => s.ftp);
+  const sessionPowerSeries    = useBleStore(s => s.sessionPowerSeries);
+  const sessionHrSeries       = useBleStore(s => s.sessionHrSeries);
+  const sessionCadenceSeries  = useBleStore(s => s.sessionCadenceSeries);
+  const sessionSpeedSeries    = useBleStore(s => s.sessionSpeedSeries);
+  const devices               = useBleStore(s => s.devices);
+  const resetSession          = useBleStore(s => s.resetSession);
   const route   = useRouteStore(s => s.selectedRoute);
   const athlete = useAthleteStore(s => s.athlete);
 
-  const avgPower = powerSamples > 0 ? Math.round(powerSum / powerSamples) : 0;
-  const avgHR    = hrSamples   > 0 ? Math.round(hrSum   / hrSamples)   : 0;
-  const kcal     = Math.round(calories);
+  // ── Canonical aggregates (NP-based TSS, MMP curve, zones, decoupling, etc) ──
+  const aggregates = useMemo(() => computeSessionAggregates({
+    powerSeries:     sessionPowerSeries,
+    hrSeries:        sessionHrSeries,
+    cadenceSeries:   sessionCadenceSeries,
+    durationSeconds: elapsed,
+    ftp,
+    maxHr:           athlete?.max_hr ?? 190,
+  }), [sessionPowerSeries, sessionHrSeries, sessionCadenceSeries, elapsed, ftp, athlete?.max_hr]);
+
+  const avgPower = aggregates.avgPower;
+  const avgHR    = aggregates.avgHr;
+  const kcal     = aggregates.calories;
+  const tss      = aggregates.tss;
+  const IF       = aggregates.intensityFactor;
+
   const dist     = distanceKm.toFixed(2);
   const avgSpeed = elapsed > 0 && distanceKm > 0 ? distanceKm / (elapsed / 3600) : 0;
 
@@ -48,20 +52,16 @@ export default function SummaryPage() {
   const ss = String(elapsed % 60).padStart(2,'0');
   const timeStr = elapsed >= 3600 ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`;
 
-  const elapsedH = elapsed / 3600;
-  const IF       = ftp > 0 && avgPower > 0 ? avgPower / ftp : 0;
-  const tss      = Math.round(elapsedH * IF * IF * 100);
-
-  // Zone distribution
-  const zoneCounts = [0, 0, 0, 0, 0];
-  sessionPowerSeries.forEach(p => {
-    const pct = p / ftp;
-    for (let z = 4; z >= 0; z--) {
-      if (pct >= (z === 0 ? 0 : ZONE_META[z-1].max)) { zoneCounts[z]++; break; }
-    }
-  });
-  const total = sessionPowerSeries.length || 1;
-  const zones = ZONE_META.map((z, i) => ({ ...z, pct: Math.round(zoneCounts[i] / total * 100), sec: zoneCounts[i] }));
+  // Zone distribution — single source of truth in @/lib/zones
+  const totalZoneSec = elapsed || 1;
+  const zones = POWER_ZONES.map(z => ({
+    id:    z.id,
+    label: z.label,
+    name:  z.name,
+    color: z.color,
+    sec:   aggregates.powerZoneSeconds[z.id],
+    pct:   Math.round(aggregates.powerZoneSeconds[z.id] / totalZoneSec * 100),
+  }));
 
   // Chart
   const CHART_LEN = 120;
@@ -90,17 +90,32 @@ export default function SummaryPage() {
 
     const supabase = createClient();
     supabase.from('sessions').insert({
-      athlete_id:  athlete.id,
-      route_id:    route?.id ?? null,
-      started_at:  new Date(Date.now() - elapsed * 1000).toISOString(),
-      duration_s:  elapsed,
-      avg_power:   avgPower,
-      avg_hr:      avgHR,
-      calories:    kcal,
-      distance_km: parseFloat(dist),
+      athlete_id:        athlete.id,
+      route_id:          route?.id ?? null,
+      started_at:        new Date(Date.now() - elapsed * 1000).toISOString(),
+      duration_s:        elapsed,
+      avg_power:         avgPower,
+      avg_hr:            avgHR,
+      calories:          kcal,
+      distance_km:       parseFloat(dist),
       tss,
-      power_series: sessionPowerSeries.slice(-3600),
-      hr_series:    sessionHrSeries.slice(-3600),
+      // Time series
+      power_series:      sessionPowerSeries.slice(-3600),
+      hr_series:         sessionHrSeries.slice(-3600),
+      cadence_series:    sessionCadenceSeries.slice(-3600),
+      speed_series:      sessionSpeedSeries.slice(-3600),
+      // Advanced metrics (Sprint 0 migration)
+      normalized_power:  aggregates.normalizedPower,
+      intensity_factor:  aggregates.intensityFactor,
+      variability_index: aggregates.variabilityIndex,
+      max_power:         aggregates.maxPower,
+      max_hr:            aggregates.maxHr,
+      avg_cadence:       aggregates.avgCadence,
+      kj:                aggregates.kj,
+      best_power:         aggregates.bestPower,
+      power_zone_seconds: aggregates.powerZoneSeconds,
+      hr_zone_seconds:    aggregates.hrZoneSeconds,
+      ftp_at_time:        ftp,
       devices: {
         trainer: devices.trainer.name || null,
         cadence: devices.cadence.name || null,
@@ -109,7 +124,11 @@ export default function SummaryPage() {
     }).then(({ error }) => {
       if (error) console.error('Erro ao salvar sessão:', error.message);
     });
-  }, [athlete, elapsed, avgPower, avgHR, kcal, dist, tss, sessionPowerSeries, sessionHrSeries, devices, route]);
+  }, [
+    athlete, elapsed, avgPower, avgHR, kcal, dist, tss, ftp,
+    sessionPowerSeries, sessionHrSeries, sessionCadenceSeries, sessionSpeedSeries,
+    aggregates, devices, route,
+  ]);
 
   function handleAgain() {
     resetSession();
@@ -247,8 +266,8 @@ export default function SummaryPage() {
               <>
                 <div className="zones" style={{ marginTop:8 }}>
                   {zones.map(z => (
-                    <div key={z.name} className="zone-row">
-                      <div className="name"><b style={{ color:'var(--fg)' }}>{z.name}</b> {z.label}</div>
+                    <div key={z.id} className="zone-row">
+                      <div className="name"><b style={{ color:'var(--fg)' }}>{z.label}</b> {z.name}</div>
                       <div className="zone-bar">
                         <i style={{ width:`${Math.min(100, z.pct * 1.6)}%`, background:z.color }}/>
                       </div>
