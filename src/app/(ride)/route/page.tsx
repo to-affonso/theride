@@ -1,14 +1,22 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useRouteStore } from '@/stores/routeStore';
+import { useAthleteStore } from '@/stores/athleteStore';
 import { createClient } from '@/lib/supabase/client';
 import { Route } from '@/types';
 import { Icons } from '@/components/icons';
 import { parseGpx, totalElevationGain, GpxPoint } from '@/lib/gpx';
 import { loadLocalRoutes, saveLocalRoute, deleteLocalRoute } from '@/lib/localRoutes';
+import { loadRouteStats, RouteStats, formatDurationShort } from '@/lib/routeStats';
+import { routeBadge } from '@/lib/routeBadge';
+import {
+  RouteFilters,
+  RouteFiltersState,
+  DEFAULT_FILTERS,
+} from '@/components/route/RouteFilters';
 
 const ACCENT = '#D5FF00';
 
@@ -107,22 +115,85 @@ function GpxElevProfile({ points, accent }: { points: GpxPoint[]; accent: string
   );
 }
 
+// ── Filter helpers ────────────────────────────────────────────────────────────
+
+function inDistance(km: number, b: RouteFiltersState['distance']): boolean {
+  switch (b) {
+    case '0-30':   return km <= 30;
+    case '30-60':  return km > 30 && km <= 60;
+    case '60-100': return km > 60 && km <= 100;
+    case '100+':   return km > 100;
+    default:       return true;
+  }
+}
+function inElevation(m: number, b: RouteFiltersState['elevation']): boolean {
+  switch (b) {
+    case 'flat':     return m < 300;
+    case 'mixed':    return m >= 300 && m <= 800;
+    case 'mountain': return m > 800;
+    default:         return true;
+  }
+}
+function inDuration(min: number, b: RouteFiltersState['duration']): boolean {
+  switch (b) {
+    case '0-30':   return min <= 30;
+    case '30-60':  return min > 30 && min <= 60;
+    case '60-120': return min > 60 && min <= 120;
+    case '120+':   return min > 120;
+    default:       return true;
+  }
+}
+
+function applyFilters(
+  routes: Route[],
+  filters: RouteFiltersState,
+  stats: Record<string, RouteStats>,
+): Route[] {
+  const q = filters.search.trim().toLowerCase();
+
+  const filtered = routes.filter(r => {
+    if (!inDistance(r.distance_km, filters.distance))       return false;
+    if (!inElevation(r.elevation_m, filters.elevation))     return false;
+    if (!inDuration(r.estimated_time_min, filters.duration)) return false;
+    if (filters.done === 'done' && !stats[r.id])             return false;
+    if (filters.done === 'new'  && stats[r.id])              return false;
+    if (q && !`${r.name} ${r.location}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  // Sort.
+  const out = [...filtered];
+  switch (filters.sort) {
+    case 'distance':   out.sort((a, b) => b.distance_km   - a.distance_km);   break;
+    case 'elevation':  out.sort((a, b) => b.elevation_m   - a.elevation_m);   break;
+    case 'difficulty': out.sort((a, b) => b.difficulty    - a.difficulty);    break;
+    case 'most-used':  out.sort((a, b) => (stats[b.id]?.count ?? 0) - (stats[a.id]?.count ?? 0)); break;
+    case 'recent':
+    default:           out.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? '')); break;
+  }
+  return out;
+}
+
 // ── Route page ────────────────────────────────────────────────────────────────
 export default function RoutePage() {
   const router = useRouter();
   const { routes, setRoutes, selectRoute, setGpxPoints } = useRouteStore();
+  const athlete = useAthleteStore(s => s.athlete);
+
   const [active, setActive] = useState<string>('');
   const [dragging, setDragging] = useState(false);
   const [gpxError, setGpxError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [filters, setFilters] = useState<RouteFiltersState>(DEFAULT_FILTERS);
+  const [stats,   setStats]   = useState<Record<string, RouteStats>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounter  = useRef(0);
 
   useEffect(() => {
     const localRoutes = loadLocalRoutes();
     const supabase = createClient();
     supabase.from('routes').select('*').order('created_at').then(({ data }) => {
       const dbRoutes: Route[] = (data && data.length > 0) ? data : STATIC_ROUTES;
-      // Merge: local GPX routes first (exclude any that were already synced to DB)
       const dbIds = new Set(dbRoutes.map(r => r.id));
       const onlyLocal = localRoutes.filter(r => !dbIds.has(r.id));
       const merged = [...onlyLocal, ...dbRoutes];
@@ -131,11 +202,30 @@ export default function RoutePage() {
     });
   }, [setRoutes]);
 
+  // Load per-route usage stats so we can show "Última: 1h47" & filter by "done".
+  useEffect(() => {
+    if (!athlete?.id) return;
+    loadRouteStats(athlete.id).then(setStats);
+  }, [athlete?.id]);
+
   const displayRoutes = routes.length > 0 ? routes : STATIC_ROUTES;
+
+  // Apply search/filter/sort. Memoised so 100 routes filter in < 1 ms.
+  const visibleRoutes = useMemo(
+    () => applyFilters(displayRoutes, filters, stats),
+    [displayRoutes, filters, stats],
+  );
+
+  // Keep `active` valid if filters hide the current selection.
+  useEffect(() => {
+    if (visibleRoutes.length === 0) return;
+    if (!visibleRoutes.find(r => r.id === active)) {
+      setActive(visibleRoutes[0].id);
+    }
+  }, [visibleRoutes, active]);
+
   const r    = displayRoutes.find(x => x.id === active) ?? displayRoutes[0];
   const rIdx = displayRoutes.indexOf(r);
-
-  // GPX points for the selected route (if any)
   const selectedGpx = r?.gpx_data?.points ?? null;
 
   async function handleGpxFile(file: File) {
@@ -146,7 +236,7 @@ export default function RoutePage() {
       const points = parseGpx(xml);
       const distKm = points[points.length - 1].distKm;
       const elevM  = totalElevationGain(points);
-      const estMin = Math.round(distKm / 0.3); // ~18 km/h avg
+      const estMin = Math.round(distKm / 0.3);
 
       const newRoute: Route = {
         id:                 `gpx-${Date.now()}`,
@@ -161,13 +251,11 @@ export default function RoutePage() {
         created_at:         new Date().toISOString(),
       };
 
-      // Always save locally first — works offline and without auth
       const withNew = [newRoute, ...displayRoutes];
       saveLocalRoute(newRoute);
       setRoutes(withNew);
       setActive(newRoute.id);
 
-      // Try to sync to Supabase; if it works, replace the local ID with the DB uuid
       const supabase = createClient();
       const { data: inserted, error } = await supabase.from('routes').insert({
         name:               newRoute.name,
@@ -181,7 +269,6 @@ export default function RoutePage() {
       }).select().single();
 
       if (!error && inserted) {
-        // Replace the temp local route with the DB-assigned one
         const synced: Route = { ...newRoute, id: inserted.id, created_at: inserted.created_at };
         deleteLocalRoute(newRoute.id);
         saveLocalRoute(synced);
@@ -198,11 +285,31 @@ export default function RoutePage() {
     }
   }
 
-  function handleDrop(e: React.DragEvent) {
+  // Page-wide drag-drop. We use dragCounter to avoid the flicker that
+  // happens when the dragenter/leave bubble through child elements.
+  function handlePageDragEnter(e: React.DragEvent) {
     e.preventDefault();
+    dragCounter.current += 1;
+    if (e.dataTransfer.types?.includes('Files')) setDragging(true);
+  }
+  function handlePageDragOver(e: React.DragEvent) {
+    e.preventDefault();
+  }
+  function handlePageDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0;
+      setDragging(false);
+    }
+  }
+  function handlePageDrop(e: React.DragEvent) {
+    e.preventDefault();
+    dragCounter.current = 0;
     setDragging(false);
     const file = e.dataTransfer.files[0];
     if (file?.name.endsWith('.gpx')) handleGpxFile(file);
+    else if (file) setGpxError('Apenas arquivos .gpx são suportados.');
   }
 
   function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
@@ -227,7 +334,23 @@ export default function RoutePage() {
   }
 
   return (
-    <div className="screen">
+    <div
+      className="screen"
+      onDragEnter={handlePageDragEnter}
+      onDragOver={handlePageDragOver}
+      onDragLeave={handlePageDragLeave}
+      onDrop={handlePageDrop}
+    >
+      {dragging && (
+        <div className="route-drop-overlay">
+          <div className="route-drop-overlay-inner">
+            <Icons.Upload size={36} c={ACCENT}/>
+            <div className="route-drop-overlay-title">Solte o arquivo .gpx</div>
+            <div className="route-drop-overlay-sub">Importaremos a rota e mostraremos a prévia.</div>
+          </div>
+        </div>
+      )}
+
       <div className="route">
         {/* ── Left column ────────────────────────────────────────────────── */}
         <div className="route-left">
@@ -236,10 +359,17 @@ export default function RoutePage() {
             <p className="lede">Modo livre. Pedale no seu ritmo — o smart trainer ajusta a resistência conforme a inclinação real do percurso.</p>
           </div>
 
+          {/* Filters + search */}
+          <RouteFilters
+            value={filters}
+            onChange={setFilters}
+            visible={visibleRoutes.length}
+            total={displayRoutes.length}
+          />
+
+          {/* GPX import button */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <div className="pill" style={{ background: 'var(--bg-3)' }}>Todas · {displayRoutes.length}</div>
             <div style={{ flex: 1 }}/>
-            {/* GPX upload button */}
             <button
               className="pill"
               onClick={() => saveStatus === 'idle' && fileInputRef.current?.click()}
@@ -276,65 +406,79 @@ export default function RoutePage() {
             </div>
           )}
 
-          {/* Route list + drag-drop zone */}
-          <div
-            className="route-list"
-            onDragOver={e => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={handleDrop}
-            style={dragging ? { outline: `2px dashed ${ACCENT}`, outlineOffset: -2, borderRadius: 10 } : undefined}
-          >
-            {dragging && (
-              <div style={{
-                position: 'absolute', inset: 0, zIndex: 10, display: 'flex', alignItems: 'center',
-                justifyContent: 'center', background: 'rgba(10,10,10,0.75)', borderRadius: 10,
-                fontFamily: "'JetBrains Mono'", fontSize: 12, color: ACCENT, letterSpacing: '0.1em',
-              }}>
-                Solte o arquivo .gpx aqui
+          {/* Route list */}
+          <div className="route-list">
+            {visibleRoutes.length === 0 && (
+              <div className="route-empty">
+                <span>Nenhuma rota encontrada com esses filtros.</span>
+                <button
+                  className="auth-link-btn"
+                  onClick={() => setFilters(DEFAULT_FILTERS)}
+                  style={{ marginTop: 6 }}
+                >
+                  Limpar filtros
+                </button>
               </div>
             )}
-            {displayRoutes.map((rt, i) => (
-              <div key={rt.id} className={`route-item ${active === rt.id ? 'active' : ''}`} onClick={() => setActive(rt.id)}>
-                <div className="route-thumb">
-                  <MiniMap seed={i + 1} accent={active === rt.id ? ACCENT : 'oklch(0.55 0.02 250)'}/>
-                </div>
-                <div className="route-info">
-                  <h4 style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {rt.name}
+
+            {visibleRoutes.map((rt, i) => {
+              const badge = routeBadge(rt);
+              const st    = stats[rt.id];
+              return (
+                <div
+                  key={rt.id}
+                  className={`route-item ${active === rt.id ? 'active' : ''}`}
+                  onClick={() => setActive(rt.id)}
+                >
+                  <div className="route-thumb">
+                    <MiniMap seed={i + 1} accent={active === rt.id ? ACCENT : 'oklch(0.55 0.02 250)'}/>
+                  </div>
+                  <div className="route-info">
+                    <h4 style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {rt.name}
+                      <span className={`route-badge tone-${badge.tone}`}>{badge.label}</span>
+                      {rt.gpx_data && <span className="route-badge tone-gpx">GPX</span>}
+                      {st && <span className="route-badge tone-done">✓ Já feita</span>}
+                    </h4>
+                    <div className="loc"><Icons.Pin size={12}/> {rt.location}</div>
+                    <div className="route-stats">
+                      <span><b>{rt.distance_km}</b> km</span>
+                      <span><b>{rt.elevation_m}</b> m</span>
+                      <span>{fmtTime(rt.estimated_time_min)}</span>
+                      {st?.bestDurationS != null && (
+                        <span className="route-last">
+                          Melhor: <b>{formatDurationShort(st.bestDurationS)}</b>
+                        </span>
+                      )}
+                      {st && st.count > 1 && (
+                        <span className="route-last">
+                          {st.count}× feita
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                    <div className={`difficulty d${rt.difficulty}`}>
+                      {Array.from({ length: 5 }).map((_, k) => <i key={k}/>)}
+                    </div>
+                    {active === rt.id && <Icons.Arrow size={14} c={ACCENT}/>}
                     {rt.gpx_data && (
-                      <span style={{ fontSize: 9, fontFamily: "'JetBrains Mono'", letterSpacing: '0.1em', textTransform: 'uppercase', color: ACCENT, background: 'rgba(213,255,0,0.1)', padding: '1px 5px', borderRadius: 3, border: `1px solid ${ACCENT}33` }}>
-                        GPX
-                      </span>
+                      <button
+                        onClick={e => { e.stopPropagation(); handleDeleteRoute(rt.id); }}
+                        title="Remover rota"
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: 'var(--fg-3)', fontSize: 11, padding: '2px 4px', lineHeight: 1,
+                          fontFamily: "'JetBrains Mono'",
+                        }}
+                      >
+                        ✕
+                      </button>
                     )}
-                  </h4>
-                  <div className="loc"><Icons.Pin size={12}/> {rt.location} · {rt.type}</div>
-                  <div className="route-stats">
-                    <span><b>{rt.distance_km}</b> km</span>
-                    <span><b>{rt.elevation_m}</b> m de elevação</span>
-                    <span>{fmtTime(rt.estimated_time_min)}</span>
                   </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
-                  <div className={`difficulty d${rt.difficulty}`}>
-                    {Array.from({ length: 5 }).map((_, k) => <i key={k}/>)}
-                  </div>
-                  {active === rt.id && <Icons.Arrow size={14} c={ACCENT}/>}
-                  {rt.gpx_data && (
-                    <button
-                      onClick={e => { e.stopPropagation(); handleDeleteRoute(rt.id); }}
-                      title="Remover rota"
-                      style={{
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        color: 'var(--fg-3)', fontSize: 11, padding: '2px 4px', lineHeight: 1,
-                        fontFamily: "'JetBrains Mono'",
-                      }}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -352,7 +496,6 @@ export default function RoutePage() {
                 </div>
               </div>
 
-              {/* Map preview — real Leaflet for GPX routes, SVG for static */}
               <div className="preview-map" style={{ overflow: 'hidden', borderRadius: 8 }}>
                 {selectedGpx
                   ? <GpxPreviewMap points={selectedGpx}/>
@@ -375,7 +518,6 @@ export default function RoutePage() {
                 }
               </div>
 
-              {/* Elevation profile */}
               <div className="preview-elev">
                 <div className="lbl">Perfil de elevação · {r.elevation_m}m</div>
                 <div style={{ position: 'absolute', inset: '24px 14px 6px' }}>
@@ -392,6 +534,30 @@ export default function RoutePage() {
                 <div className="stat-cell"><div className="lbl">Dificuldade</div><div className="val">{r.difficulty}<small>/5</small></div></div>
                 <div className="stat-cell"><div className="lbl">Duração est.</div><div className="val">{fmtTime(r.estimated_time_min).replace('~', '')}</div></div>
               </div>
+
+              {/* Last ride / best time — only when stats available */}
+              {stats[r.id] && (
+                <div className="route-history-strip">
+                  <div className="route-history-item">
+                    <div className="lbl">Última vez</div>
+                    <div className="val">
+                      {stats[r.id].lastAt
+                        ? new Date(stats[r.id].lastAt!).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+                        : '—'}
+                    </div>
+                  </div>
+                  <div className="route-history-item">
+                    <div className="lbl">Melhor tempo</div>
+                    <div className="val">
+                      {stats[r.id].bestDurationS != null ? formatDurationShort(stats[r.id].bestDurationS!) : '—'}
+                    </div>
+                  </div>
+                  <div className="route-history-item">
+                    <div className="lbl">Vezes feita</div>
+                    <div className="val">{stats[r.id].count}</div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

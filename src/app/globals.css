@@ -956,3 +956,120 @@ button { font-family: inherit; }
   font-family: 'JetBrains Mono'; font-size: 10.5px;
   font-weight: 600; letter-spacing: .04em;
 }
+
+/* ── Sprint 6 — route filters ───────────────────────────────────────────── */
+.route-filters {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.route-filters-search {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-soft); border-radius: 10px;
+}
+.route-filters-search input {
+  flex: 1; background: transparent; border: 0; outline: 0;
+  color: var(--fg); font-family: inherit; font-size: 13.5px;
+  letter-spacing: -0.01em;
+}
+.route-filters-search input::placeholder { color: var(--fg-3); }
+.route-filters-clear {
+  background: transparent; border: 0; cursor: pointer;
+  color: var(--fg-3); font-size: 13px; padding: 2px 6px;
+}
+.route-filters-clear:hover { color: var(--fg); }
+
+.route-filters-row {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+}
+.route-filters-spacer { flex: 1; }
+.route-filters-count {
+  font-family: 'JetBrains Mono'; font-size: 11.5px; font-weight: 600;
+  color: var(--fg-2);
+  padding: 6px 10px; background: var(--bg-3); border-radius: 999px;
+}
+.route-filters-count .of { color: var(--fg-3); margin-left: 2px; }
+
+.route-filter-chip {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 14px;
+  background: var(--bg-2); border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  font-family: 'JetBrains Mono'; font-size: 11.5px; font-weight: 600;
+  color: var(--fg-2); cursor: pointer; user-select: none;
+  transition: border-color .12s, color .12s;
+}
+.route-filter-chip:hover { color: var(--fg); border-color: var(--line); }
+.route-filter-chip.active {
+  background: rgba(213,255,0,.08);
+  border-color: rgba(213,255,0,.4);
+  color: var(--accent);
+}
+.route-filter-chip select {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer;
+  font-family: inherit;
+}
+
+/* ── Sprint 6 — route badges ────────────────────────────────────────────── */
+.route-badge {
+  display: inline-block; padding: 1px 6px; border-radius: 4px;
+  font-family: 'JetBrains Mono'; font-size: 9px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase;
+  line-height: 1.4; border: 1px solid;
+}
+.route-badge.tone-flat    { color: oklch(0.7 0.14 180); background: oklch(0.7 0.14 180 / 0.1);  border-color: oklch(0.7 0.14 180 / 0.35); }
+.route-badge.tone-climb   { color: oklch(0.7 0.2 340);  background: oklch(0.7 0.2 340 / 0.1);   border-color: oklch(0.7 0.2 340 / 0.35);  }
+.route-badge.tone-mixed   { color: oklch(0.78 0.18 60); background: oklch(0.78 0.18 60 / 0.1);  border-color: oklch(0.78 0.18 60 / 0.35); }
+.route-badge.tone-sprint  { color: oklch(0.65 0.22 25); background: oklch(0.65 0.22 25 / 0.1);  border-color: oklch(0.65 0.22 25 / 0.35); }
+.route-badge.tone-gpx     { color: var(--accent);       background: rgba(213,255,0,.1);         border-color: rgba(213,255,0,.35); }
+.route-badge.tone-done    { color: var(--fg-3);         background: var(--bg-3);                border-color: var(--line-soft); }
+
+.route-last {
+  color: var(--fg-3); font-family: 'JetBrains Mono'; font-size: 11px;
+}
+.route-last b { color: var(--fg); font-weight: 600; }
+
+/* ── Sprint 6 — page-wide drop overlay ─────────────────────────────────── */
+.route-drop-overlay {
+  position: fixed; inset: 0; z-index: 1500;
+  display: grid; place-items: center;
+  background: rgba(10,10,10,.78);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+.route-drop-overlay-inner {
+  padding: 36px 56px;
+  border: 2px dashed rgba(213,255,0,.65); border-radius: 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: rgba(20,22,28,.5);
+}
+.route-drop-overlay-title {
+  font-family: 'Inter'; font-size: 22px; font-weight: 700;
+  letter-spacing: -0.02em; color: var(--fg); margin-top: 8px;
+}
+.route-drop-overlay-sub {
+  font-family: 'JetBrains Mono'; font-size: 12px; color: var(--fg-2);
+  letter-spacing: .06em;
+}
+
+/* ── Sprint 6 — route history strip (detail pane) ──────────────────────── */
+.route-history-strip {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
+  padding: 14px 16px;
+  background: var(--bg-2); border: 1px solid var(--line-soft); border-radius: 10px;
+}
+.route-history-item .lbl {
+  font-family: 'JetBrains Mono'; font-size: 9.5px;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--fg-3);
+}
+.route-history-item .val {
+  font-family: 'Inter'; font-size: 17px; font-weight: 700;
+  letter-spacing: -0.02em; color: var(--fg); margin-top: 4px;
+}
+
+.route-empty {
+  padding: 28px; text-align: center;
+  color: var(--fg-3); font-size: 13px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
