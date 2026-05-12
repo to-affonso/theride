@@ -37,9 +37,11 @@ function Tracker({ lat, lon }: { lat: number; lon: number }) {
 export default function LiveMapInner({
   points,
   distanceKm,
+  currentGrade,
 }: {
   points: GpxPoint[];
   distanceKm: number;
+  currentGrade?: number;
 }) {
   const markerRef = useRef<L.Marker | null>(null);
 
@@ -61,6 +63,20 @@ export default function LiveMapInner({
       markerRef.current.setLatLng([pos.lat, pos.lon]);
     }
   }, [pos.lat, pos.lon]);
+
+  // Update the gradient tooltip content whenever the grade changes.
+  useEffect(() => {
+    const m = markerRef.current;
+    if (!m || currentGrade == null) return;
+    const tooltip = m.getTooltip();
+    if (tooltip) {
+      const color = currentGrade > 0 ? '#FF9F43' : currentGrade < -1 ? '#4ade80' : '#FAFAFA';
+      const sign  = currentGrade >= 0 ? '+' : '';
+      tooltip.setContent(
+        `<span style="color:${color};font-family:'JetBrains Mono';font-size:11px;font-weight:600;">${sign}${currentGrade.toFixed(1)}%</span>`,
+      );
+    }
+  }, [currentGrade]);
 
   if (points.length === 0) return null;
 
@@ -163,6 +179,14 @@ function RiderMarker({
   const map = useMap();
   useEffect(() => {
     const m = L.marker([lat, lon], { icon: riderIcon, zIndexOffset: 1000 }).addTo(map);
+    // Permanent tooltip holds the live gradient (content updated externally).
+    m.bindTooltip('', {
+      permanent:  true,
+      direction:  'right',
+      offset:     [12, 0],
+      opacity:    1,
+      className:  'gradient-tooltip',
+    });
     markerRef.current = m;
     return () => { m.remove(); markerRef.current = null; };
   // eslint-disable-next-line react-hooks/exhaustive-deps

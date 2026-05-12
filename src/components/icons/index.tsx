@@ -190,10 +190,30 @@ function CheckCircle({ size = 16, c = 'currentColor' }: IconProps) {
   );
 }
 
+function Flag({ size = 16, c = 'currentColor' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 21V4"/>
+      <path d="M5 4h11l-2 4 2 4H5"/>
+    </svg>
+  );
+}
+
+function Warning({ size = 24, c = 'currentColor' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.3 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      <path d="M12 9v4"/>
+      <circle cx="12" cy="17" r="0.9" fill={c}/>
+    </svg>
+  );
+}
+
 export const Icons = {
   Trainer, Cadence, Speed, Heart, Power,
   Bluetooth, Pin, Play, Pause, Stop,
   Plus, Search, Arrow, Settings, Symbol,
   Pencil, Check, Upload,
   Trophy, Info, Alert, CheckCircle,
+  Flag, Warning,
 };

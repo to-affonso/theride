@@ -284,10 +284,40 @@ button { font-family: inherit; }
 
 .live-top {
   position: absolute; top: 24px; left: 32px; right: 32px;
-  display: flex; justify-content: space-between; align-items: flex-start;
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: flex-start;
   z-index: 10; pointer-events: none; gap: 14px;
 }
-.live-top .left, .live-top .right { display: flex; gap: 12px; align-items: flex-start; pointer-events: auto; }
+.live-top .left  { display: flex; gap: 12px; align-items: flex-start; justify-self: start; pointer-events: auto; }
+.live-top .right { display: flex; gap: 12px; align-items: flex-start; justify-self: end;   pointer-events: auto; }
+
+/* ── Time card — protagonist of the top bar (Sprint 4) ───────────────────── */
+.live-top-time {
+  justify-self: center;
+  min-width: 220px;
+  padding: 12px 28px 14px;
+  background: rgba(20,22,28,.85);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  pointer-events: auto;
+  position: relative;
+}
+.live-top-time .lbl {
+  font-family: 'JetBrains Mono'; font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: .14em; color: var(--fg-3);
+}
+.live-top-time .v {
+  font-family: 'Inter'; font-weight: 800; font-size: 44px; line-height: 1;
+  letter-spacing: -0.04em; font-variant-numeric: tabular-nums; color: var(--fg);
+  margin-top: 4px;
+}
+.live-top-time .paused-pill {
+  position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%);
+  padding: 3px 10px; border-radius: 999px;
+  background: var(--warn); color: var(--bg);
+  font-family: 'JetBrains Mono'; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; font-weight: 600;
+}
 
 .ride-tag {
   padding: 10px 16px; background: rgba(0,0,0,.5); backdrop-filter: blur(12px);
@@ -741,3 +771,124 @@ button { font-family: inherit; }
 .u-cursor-pt{position:absolute;top:0;left:0;border-radius:50%;pointer-events:none;will-change:transform;background-clip:padding-box !important}
 .u-axis.u-off,.u-select.u-off,.u-cursor-x.u-off,.u-cursor-y.u-off,.u-cursor-pt.u-off{display:none}
 .u-select{background:rgba(213,255,0,0.06);position:absolute;pointer-events:none}
+
+/* ── Sprint 4 — live ride additions ──────────────────────────────────────── */
+
+/* Lap chip — appears bottom-center above the HUD when a lap closes */
+.lap-chip-anchor {
+  position: absolute; left: 50%; bottom: 280px;
+  transform: translateX(-50%); z-index: 11; pointer-events: none;
+}
+.lap-chip {
+  padding: 10px 16px;
+  background: rgba(20,22,28,.92);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(213,255,0,.35);
+  border-radius: 12px;
+  display: flex; flex-direction: column; gap: 6px;
+  animation: lap-chip-in .3s ease-out;
+}
+@keyframes lap-chip-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.lap-chip-head { display: flex; align-items: center; gap: 8px; }
+.lap-chip-idx {
+  font-family: 'JetBrains Mono'; font-size: 10.5px;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--accent);
+  font-weight: 700;
+}
+.lap-chip-kind {
+  font-family: 'JetBrains Mono'; font-size: 9.5px;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--fg-3);
+  padding: 1px 6px; background: var(--bg-3); border-radius: 3px;
+}
+.lap-chip-row { display: flex; gap: 18px; align-items: baseline; }
+.lap-chip-num {
+  font-family: 'Inter'; font-weight: 700; font-size: 17px;
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--fg);
+}
+.lap-chip-num small {
+  font-size: 10.5px; font-weight: 500; color: var(--fg-3); margin-left: 2px;
+  font-family: 'JetBrains Mono';
+}
+
+/* Disconnect modal — full-screen overlay alert */
+.disconnect-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  display: grid; place-items: center;
+  background: rgba(0,0,0,0.65); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.disconnect-modal {
+  width: min(420px, 90vw);
+  padding: 28px 30px 24px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 12px;
+}
+.disconnect-icon { color: var(--warn); }
+.disconnect-title {
+  margin: 4px 0 0;
+  font-family: 'Inter'; font-size: 19px; font-weight: 700; letter-spacing: -0.02em;
+  color: var(--fg);
+}
+.disconnect-sub {
+  margin: 0; font-size: 13px; color: var(--fg-2); line-height: 1.45;
+}
+.disconnect-name {
+  display: block; font-family: 'JetBrains Mono'; font-size: 11.5px;
+  color: var(--fg-3); letter-spacing: .06em; margin-bottom: 4px;
+}
+.disconnect-actions {
+  display: flex; gap: 10px; margin-top: 10px;
+}
+
+/* Live settings popover — anchored above the gear button in play-strip */
+.live-settings {
+  position: absolute; right: 0; bottom: 54px;
+  width: 240px;
+  padding: 14px 14px 12px;
+  background: rgba(20,22,28,.96);
+  border: 1px solid var(--line-soft); border-radius: 12px;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 28px rgba(0,0,0,.5);
+  display: flex; flex-direction: column; gap: 14px; z-index: 30;
+}
+.live-settings-section { display: flex; flex-direction: column; gap: 6px; }
+.live-settings-label {
+  font-family: 'JetBrains Mono'; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .14em; color: var(--fg-3);
+}
+.live-settings-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.seg-btn {
+  flex: 1 1 auto;
+  padding: 7px 10px; border-radius: 7px;
+  background: var(--bg); border: 1px solid var(--line-soft); color: var(--fg-2);
+  font-family: 'JetBrains Mono'; font-size: 11.5px; font-weight: 600;
+  letter-spacing: .04em; cursor: pointer;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.seg-btn:hover { color: var(--fg); border-color: var(--line); }
+.seg-btn.active {
+  background: rgba(213,255,0,.08);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.live-settings-hint {
+  font-size: 10.5px; color: var(--fg-3); font-family: 'JetBrains Mono';
+  line-height: 1.4;
+}
+
+/* Leaflet permanent tooltip — strip default chrome, dark-theme it */
+.gradient-tooltip.leaflet-tooltip {
+  background: rgba(0,0,0,0.78);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 3px 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.5);
+  white-space: nowrap;
+}
+.gradient-tooltip.leaflet-tooltip:before,
+.gradient-tooltip.leaflet-tooltip:after { display: none; }

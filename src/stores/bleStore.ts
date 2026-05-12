@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import { BleState, DeviceType } from '@/types';
+import { BleState, DeviceType, Lap } from '@/types';
 
 const INITIAL_DEVICE = { device: null, connected: false, connecting: false, name: '' };
 
@@ -51,6 +51,10 @@ const DEVICE_CONFIG = {
 interface BleStore extends BleState {
   connect: (type: DeviceType) => Promise<void>;
   disconnect: (type: DeviceType) => void;
+  /** Manually re-establish the GATT connection for a known device (no chooser). */
+  reconnect: (type: DeviceType) => Promise<void>;
+  /** Dismiss the disconnect popup without reconnecting. */
+  dismissDisconnect: () => void;
   resetSession: () => void;
   startSession: () => void;
   pauseSession: () => void;
@@ -61,6 +65,13 @@ interface BleStore extends BleState {
   setWeight: (weight: number) => void;
   setTargetPower: (watts: number) => Promise<void>;
   setGrade: (grade: number) => Promise<void>;
+  // ── Sprint 4 ────────────────────────────────────────────────────────────────
+  /** Switch the on-screen smoothing window. */
+  setSmoothing: (v: '1s' | '3s') => void;
+  /** Configure auto-lap distance. Pass `null` to disable. */
+  setAutoLapKm: (km: number | null) => void;
+  /** Close the current lap and start a new one. */
+  addLap: (kind?: 'manual' | 'auto') => void;
 }
 
 export const useBleStore = create<BleStore>((set, get) => {
@@ -69,6 +80,39 @@ export const useBleStore = create<BleStore>((set, get) => {
   let cscPrev: { rev: number | null; time: number | null } = { rev: null, time: null };
   // FTMS Control Point characteristic for ERG mode
   let ftmsControlPoint: BluetoothRemoteGATTCharacteristic | null = null;
+
+  // ── 3-second rolling buffers (closure state — kept off the store to avoid
+  //    re-renders on every sample). Each entry: [timestamp_ms, value].
+  const power3sBuf: [number, number][] = [];
+  const hr3sBuf:    [number, number][] = [];
+
+  /** Drop entries older than 3 s and return the average. */
+  function rolling3sAvg(buf: [number, number][], now: number): number | null {
+    while (buf.length > 0 && now - buf[0][0] > 3000) buf.shift();
+    if (buf.length === 0) return null;
+    let sum = 0;
+    for (const [, v] of buf) sum += v;
+    return sum / buf.length;
+  }
+
+  // ── Per-lap baseline counters. The current lap's average power/HR is
+  //    `(currentSum - lapBaseline.sum) / (currentSamples - lapBaseline.samples)`.
+  let lapBaseline = {
+    powerSum:    0,
+    powerSamples: 0,
+    hrSum:       0,
+    hrSamples:   0,
+    distanceKm:  0,
+    elapsed:     0,
+    startedAt:   0,
+  };
+
+  function resetLapBaseline(elapsed = 0, distanceKm = 0) {
+    lapBaseline = {
+      powerSum: 0, powerSamples: 0, hrSum: 0, hrSamples: 0,
+      distanceKm, elapsed, startedAt: Date.now(),
+    };
+  }
 
   function addLogImpl(msg: string, type: 'info' | 'success' | 'warn' | 'error' = 'info') {
     const now = new Date();
@@ -82,6 +126,15 @@ export const useBleStore = create<BleStore>((set, get) => {
     value: number,
     source?: DeviceType | 'ant',
   ) {
+    const now = Date.now();
+
+    // Update 3s rolling buffers outside React state for cheap recompute.
+    if (metric === 'power') {
+      power3sBuf.push([now, Math.max(0, value)]);
+    } else if (metric === 'hr' && value > 0) {
+      hr3sBuf.push([now, value]);
+    }
+
     set(s => {
       const next = { ...s };
 
@@ -89,6 +142,10 @@ export const useBleStore = create<BleStore>((set, get) => {
       if (metric === 'cadence') { next.cadence = value; next.sources = { ...s.sources, cadence: source ?? null }; }
       if (metric === 'hr')      { next.hr      = value; next.sources = { ...s.sources, hr:      source ?? null }; }
       if (metric === 'speed')   { next.speed   = value; }
+
+      // Recompute smoothed values from the rolling buffers.
+      next.power3s = rolling3sAvg(power3sBuf, now);
+      next.hr3s    = rolling3sAvg(hr3sBuf,    now);
 
       if (s.sessionStart && !s.sessionPaused) {
         if (metric === 'power' && value > 0) {
@@ -247,16 +304,60 @@ export const useBleStore = create<BleStore>((set, get) => {
     } catch { addLogImpl(`${name}: serviço HR não encontrado neste dispositivo.`, 'error'); }
   }
 
+  /** Close the current lap. Computes avg power/HR from the running deltas. */
+  function addLapImpl(kind: 'manual' | 'auto' = 'manual') {
+    const s = get();
+    if (!s.sessionStart) return;
+
+    const lapPowerSum     = s.powerSum    - lapBaseline.powerSum;
+    const lapPowerSamples = s.powerSamples - lapBaseline.powerSamples;
+    const lapHrSum        = s.hrSum       - lapBaseline.hrSum;
+    const lapHrSamples    = s.hrSamples   - lapBaseline.hrSamples;
+
+    const lapDistanceKm = Math.max(0, s.distanceKm - lapBaseline.distanceKm);
+    const lapDurationS  = Math.max(0, s.elapsed   - lapBaseline.elapsed);
+
+    if (lapDurationS < 2) return; // ignore accidental double-taps
+
+    const lap: Lap = {
+      index:      s.laps.length + 1,
+      distanceKm: lapDistanceKm,
+      durationS:  lapDurationS,
+      avgPower:   lapPowerSamples > 0 ? Math.round(lapPowerSum / lapPowerSamples) : 0,
+      avgHr:      lapHrSamples    > 0 ? Math.round(lapHrSum    / lapHrSamples)    : null,
+      startedAt:  lapBaseline.startedAt,
+      kind,
+    };
+
+    set({ laps: [...s.laps, lap] });
+    resetLapBaseline(s.elapsed, s.distanceKm);
+    addLogImpl(
+      `Lap ${lap.index} ${kind === 'auto' ? '(auto)' : ''} · ${lap.distanceKm.toFixed(2)} km · ${lap.avgPower}W`,
+      'info',
+    );
+  }
+
+  /** Session tick — updates elapsed, distance, and triggers auto-lap. */
+  function tickSession() {
+    set(s => {
+      const elapsed = s.sessionStart ? Math.floor((Date.now() - s.sessionStart!) / 1000) : 0;
+      if (s.sessionPaused || s.speed === null || s.speed <= 0) return { elapsed };
+      return { elapsed, distanceKm: s.distanceKm + s.speed / 3600 };
+    });
+
+    // Auto-lap trigger.
+    const s = get();
+    if (s.autoLapKm != null && s.autoLapKm > 0) {
+      const dist = s.distanceKm - lapBaseline.distanceKm;
+      if (dist >= s.autoLapKm) addLapImpl('auto');
+    }
+  }
+
   function startSession() {
     const start = Date.now();
     set({ sessionStart: start, elapsed: 0 });
-    sessionInterval = setInterval(() => {
-      set(s => {
-        const elapsed = s.sessionStart ? Math.floor((Date.now() - s.sessionStart!) / 1000) : 0;
-        if (s.sessionPaused || s.speed === null || s.speed <= 0) return { elapsed };
-        return { elapsed, distanceKm: s.distanceKm + s.speed / 3600 };
-      });
-    }, 1000);
+    resetLapBaseline(0, 0);
+    sessionInterval = setInterval(tickSession, 1000);
     addLogImpl('Sessão iniciada.', 'success');
   }
 
@@ -283,13 +384,59 @@ export const useBleStore = create<BleStore>((set, get) => {
     log: [],
     deviceConfig: DEVICE_CONFIG,
 
+    // ── Sprint 4 ──
+    power3s:   null,
+    hr3s:      null,
+    smoothing: '3s',
+    laps:      [],
+    autoLapKm: null,
+    disconnectAlert: null,
+
     addLog: addLogImpl,
     updateMetric: updateMetricImpl,
     setFtp:    (ftp)    => set({ ftp }),
     setWeight: (weight) => set({ weight }),
+    setSmoothing:  (v)  => set({ smoothing: v }),
+    setAutoLapKm:  (km) => set({ autoLapKm: km }),
+    addLap:        (kind = 'manual') => addLapImpl(kind),
+    dismissDisconnect: () => set({ disconnectAlert: null }),
+
+    reconnect: async (type) => {
+      const d = get().devices[type];
+      const device = d.device;
+      if (!device) {
+        addLogImpl(`Sem dispositivo memorizado para ${type} — abra o seletor.`, 'warn');
+        return;
+      }
+      set(prev => ({
+        disconnectAlert: prev.disconnectAlert ? { ...prev.disconnectAlert, reconnecting: true } : null,
+        devices: { ...prev.devices, [type]: { ...prev.devices[type], connecting: true } },
+      }));
+      try {
+        const server = await device.gatt!.connect();
+        if (type === 'trainer') await subscribeTrainer(server, d.name || device.name || 'Trainer');
+        if (type === 'cadence') await subscribeCadence(server, d.name || device.name || 'Cadência');
+        if (type === 'hr')      await subscribeHR(server, d.name || device.name || 'HR');
+        set(prev => ({
+          devices:    { ...prev.devices, [type]: { device, connected: true, connecting: false, name: d.name || device.name || '' } },
+          disconnectAlert: null,
+        }));
+        addLogImpl(`${d.name || device.name}: reconectado manualmente.`, 'success');
+        if (get().sessionPaused) get().resumeSession();
+      } catch (err) {
+        set(prev => ({
+          disconnectAlert: prev.disconnectAlert ? { ...prev.disconnectAlert, reconnecting: false } : null,
+          devices:    { ...prev.devices, [type]: { ...prev.devices[type], connecting: false } },
+        }));
+        addLogImpl(`Falha ao reconectar: ${(err as Error).message}`, 'error');
+      }
+    },
 
     resetSession: () => {
       if (sessionInterval) { clearInterval(sessionInterval); sessionInterval = null; }
+      power3sBuf.length = 0;
+      hr3sBuf.length    = 0;
+      resetLapBaseline(0, 0);
       set({
         sessionStart: null, elapsed: 0, sessionPaused: false,
         powerSum: 0, powerSamples: 0,
@@ -297,6 +444,8 @@ export const useBleStore = create<BleStore>((set, get) => {
         calories: 0, distanceKm: 0,
         sessionPowerSeries: [], sessionHrSeries: [],
         sessionCadenceSeries: [], sessionSpeedSeries: [],
+        power3s: null, hr3s: null,
+        laps: [], disconnectAlert: null,
       });
     },
 
@@ -312,13 +461,7 @@ export const useBleStore = create<BleStore>((set, get) => {
       const el = get().elapsed;
       if (sessionInterval) { clearInterval(sessionInterval); sessionInterval = null; }
       set({ sessionStart: Date.now() - el * 1000, sessionPaused: false });
-      sessionInterval = setInterval(() => {
-        set(s => {
-          const elapsed = s.sessionStart ? Math.floor((Date.now() - s.sessionStart!) / 1000) : 0;
-          if (s.sessionPaused || s.speed === null || s.speed <= 0) return { elapsed };
-          return { elapsed, distanceKm: s.distanceKm + s.speed / 3600 };
-        });
-      }, 1000);
+      sessionInterval = setInterval(tickSession, 1000);
     },
 
     connect: async (type) => {
@@ -359,16 +502,18 @@ export const useBleStore = create<BleStore>((set, get) => {
         }));
 
         device.addEventListener('gattserverdisconnected', async () => {
-          const wasRunning = type === 'trainer' && get().sessionStart !== null && !get().sessionPaused;
+          // Sprint 4: pause on ANY sensor disconnect (not just trainer).
+          const wasRunning = get().sessionStart !== null && !get().sessionPaused;
 
           addLogImpl(`${devName} desconectado — reconectando (10s)...`, 'warn');
           set(prev => ({
-            devices: { ...prev.devices, [type]: { device, connected: false, connecting: true, name: devName } }
+            devices:    { ...prev.devices, [type]: { device, connected: false, connecting: true, name: devName } },
+            disconnectAlert: { type, name: devName, reconnecting: true },
           }));
 
           if (wasRunning) {
             get().pauseSession();
-            addLogImpl('Sessão pausada — trainer desconectado.', 'warn');
+            addLogImpl(`Sessão pausada — ${devName} desconectado.`, 'warn');
           }
 
           let timedOut    = false;
@@ -399,6 +544,7 @@ export const useBleStore = create<BleStore>((set, get) => {
           clearTimeout(timer);
 
           if (reconnected) {
+            set({ disconnectAlert: null });
             if (wasRunning) {
               get().resumeSession();
               addLogImpl(`Sessão retomada — ${devName} reconectado.`, 'success');
@@ -412,12 +558,14 @@ export const useBleStore = create<BleStore>((set, get) => {
               if (prev.sources.cadence === type) { next.cadence = null; next.sources = { ...next.sources, cadence: null }; }
               if (prev.sources.hr      === type) { next.hr      = null; next.sources = { ...next.sources, hr:      null }; }
               if (type === 'trainer')             { next.speed   = null; }
+              // Keep the popup open with `reconnecting:false` so the user can retry manually.
+              next.disconnectAlert = { type, name: devName, reconnecting: false };
               return next;
             });
             addLogImpl(
               timedOut
-                ? `${devName}: timeout de 10s — voltando ao estado inicial.`
-                : `${devName}: sem reconexão após 3 tentativas.`,
+                ? `${devName}: timeout de 10s — clique em Reconectar para tentar de novo.`
+                : `${devName}: sem reconexão após 3 tentativas — clique em Reconectar.`,
               'error',
             );
           }
