@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Icons } from '@/components/icons';
 import { DeviceType } from '@/types';
 import { BatteryIndicator } from '@/components/pair/BatteryIndicator';
+import { SpindownModal } from '@/components/pair/SpindownModal';
 
 // Trainer is required; the other sensors are nice-to-have.
 const ESSENTIAL: { id: DeviceType; kind: string; sub: string }[] = [
@@ -56,6 +57,7 @@ export default function PairPage() {
   const deviceConfig = useBleStore(s => s.deviceConfig);
   const isSupported = useBleStore(s => s.isSupported);
   const ergEnabled = useBleStore(s => s.ergEnabled);
+  const openSpindown = useBleStore(s => s.openSpindown);
   const ftp        = useBleStore(s => s.ftp);
   const weight     = useBleStore(s => s.weight);
   const setFtp     = useBleStore(s => s.setFtp);
@@ -164,10 +166,23 @@ export default function PairPage() {
               ? <span style={{ fontSize:11, color:'var(--accent-2)' }}>Clique para desconectar</span>
               : <span style={{ fontSize:11, color:'var(--fg-3)' }}>Clique para conectar via BLE</span>}
           </div>
-          <div className="protocol">
-            {cfg.protocols.map(p =>
-              <span key={p} className={d.connected ? 'on' : ''}>{p}</span>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {/* Spindown calibration — only for connected trainer with FTMS control */}
+            {dt.id === 'trainer' && d.connected && ergEnabled && (
+              <button
+                className="spindown-btn"
+                onClick={(e) => { e.stopPropagation(); openSpindown(); }}
+                title="Calibração spindown (FTMS)"
+              >
+                <Icons.Settings size={12}/> Calibrar
+              </button>
             )}
+            <div className="protocol">
+              {cfg.protocols.map(p =>
+                <span key={p} className={d.connected ? 'on' : ''}>{p}</span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -407,6 +422,8 @@ export default function PairPage() {
         </div>
 
       </div>
+
+      <SpindownModal/>
     </div>
   );
 }

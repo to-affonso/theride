@@ -87,6 +87,12 @@ interface BleStore extends BleState {
    * that don't expose `getDevices()`.
    */
   autoReconnect: () => Promise<void>;
+  /** Open the spindown modal (state → 'prompting'). */
+  openSpindown: () => void;
+  /** Send the FTMS Spin Down Control opcode and listen for the response. */
+  startSpindown: () => Promise<void>;
+  /** Close the spindown modal (state → 'idle'). */
+  closeSpindown: () => void;
 }
 
 /** localStorage key for the list of devices the user has paired with. */
@@ -461,6 +467,7 @@ export const useBleStore = create<BleStore>((set, get) => {
     laps:      [],
     autoLapKm: null,
     disconnectAlert: null,
+    spindown:  { phase: 'idle', message: '' },
 
     addLog: addLogImpl,
     updateMetric: updateMetricImpl,
@@ -755,6 +762,65 @@ export const useBleStore = create<BleStore>((set, get) => {
       } catch (err) {
         addLogImpl(`Simulation grade erro: ${(err as Error).message}`, 'error');
       }
+    },
+
+    openSpindown: () => set({ spindown: { phase: 'prompting', message: '' } }),
+    closeSpindown: () => set({ spindown: { phase: 'idle', message: '' } }),
+
+    startSpindown: async () => {
+      if (!ftmsControlPoint) {
+        set({ spindown: { phase: 'error', message: 'Trainer não está conectado via FTMS.' } });
+        return;
+      }
+
+      set({ spindown: { phase: 'running', message: 'Pedale até atingir ~30 km/h e pare de pedalar.' } });
+
+      // The Spin Down response is delivered as an indication on the
+      // Fitness Machine Control Point itself (op 0x80 = Response).
+      // We attach a one-shot listener with a 60 s timeout.
+      let settled = false;
+      const onIndication = (e: Event) => {
+        const dv = (e.target as BluetoothRemoteGATTCharacteristic).value;
+        if (!dv) return;
+        const op       = dv.getUint8(0); // 0x80
+        const reqOp    = dv.getUint8(1); // 0x4C if it's our spindown response
+        const resultCd = dv.getUint8(2);
+        if (op !== 0x80 || reqOp !== 0x4C) return;
+
+        settled = true;
+        ftmsControlPoint?.removeEventListener('characteristicvaluechanged', onIndication);
+
+        // FTMS result codes: 0x01 = Success.
+        if (resultCd === 0x01) {
+          set({ spindown: { phase: 'success', message: 'Calibração concluída com sucesso.' } });
+          addLogImpl('Spindown: calibração concluída.', 'success');
+        } else {
+          set({ spindown: { phase: 'error', message: `Falha (código 0x${resultCd.toString(16)}). Tente novamente.` } });
+          addLogImpl(`Spindown falhou: 0x${resultCd.toString(16)}.`, 'error');
+        }
+      };
+
+      ftmsControlPoint.addEventListener('characteristicvaluechanged', onIndication);
+
+      // Send the Spin Down Control command (op 0x4C, param 0x01 = Start).
+      try {
+        const buf = new Uint8Array([0x4C, 0x01]);
+        await ftmsControlPoint.writeValueWithResponse(buf);
+        addLogImpl('Spindown: comando enviado, aguardando resposta…', 'info');
+      } catch (err) {
+        ftmsControlPoint.removeEventListener('characteristicvaluechanged', onIndication);
+        set({ spindown: { phase: 'error', message: `Trainer rejeitou o comando: ${(err as Error).message}` } });
+        return;
+      }
+
+      // 60 s safety timeout.
+      setTimeout(() => {
+        if (settled) return;
+        ftmsControlPoint?.removeEventListener('characteristicvaluechanged', onIndication);
+        if (get().spindown.phase === 'running') {
+          set({ spindown: { phase: 'error', message: 'Sem resposta do trainer em 60s. Seu trainer pode não suportar spindown via FTMS.' } });
+        }
+      }, 60_000);
     },
   };
 });

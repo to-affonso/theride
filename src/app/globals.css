@@ -1073,3 +1073,17 @@ button { font-family: inherit; }
   color: var(--fg-3); font-size: 13px;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
 }
+
+/* Spindown action button on the trainer card */
+.spindown-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border-radius: 6px;
+  background: var(--bg-3); border: 1px solid var(--line-soft);
+  color: var(--fg-2); font-family: 'JetBrains Mono'; font-size: 10.5px;
+  font-weight: 600; letter-spacing: .06em; cursor: pointer;
+  transition: color .12s, border-color .12s, background .12s;
+}
+.spindown-btn:hover {
+  color: var(--accent); border-color: rgba(213,255,0,.35);
+  background: rgba(213,255,0,.06);
+}

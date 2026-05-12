@@ -47,6 +47,23 @@ export interface DisconnectState {
   reconnecting: boolean;
 }
 
+/**
+ * Spindown / coast-down calibration state machine.
+ *
+ *   idle       → nothing happening
+ *   prompting  → user opened the modal, hasn't started yet
+ *   running    → FTMS Spin Down Control sent, awaiting indication
+ *   success    → trainer reported completion
+ *   error      → unsupported, timed out, or trainer reported failure
+ */
+export type SpindownPhase = 'idle' | 'prompting' | 'running' | 'success' | 'error';
+
+export interface SpindownState {
+  phase:   SpindownPhase;
+  /** Human-readable status message shown in the modal. */
+  message: string;
+}
+
 export interface BleState {
   isSupported: boolean;
   devices: Record<DeviceType, DeviceInfo>;
@@ -96,4 +113,7 @@ export interface BleState {
   autoLapKm: number | null;
   /** The device that just disconnected (drives reconnect popup). */
   disconnectAlert: DisconnectState | null;
+
+  /** Spindown / wheel-calibration progress for the trainer. */
+  spindown: SpindownState;
 }

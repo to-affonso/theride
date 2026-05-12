@@ -17,6 +17,7 @@ import {
   RouteFiltersState,
   DEFAULT_FILTERS,
 } from '@/components/route/RouteFilters';
+import { GpxThumbnail } from '@/components/route/GpxThumbnail';
 
 const ACCENT = '#D5FF00';
 
@@ -431,7 +432,15 @@ export default function RoutePage() {
                   onClick={() => setActive(rt.id)}
                 >
                   <div className="route-thumb">
-                    <MiniMap seed={i + 1} accent={active === rt.id ? ACCENT : 'oklch(0.55 0.02 250)'}/>
+                    {rt.gpx_data?.points && rt.gpx_data.points.length > 1
+                      ? <GpxThumbnail
+                          points={rt.gpx_data.points}
+                          accent={active === rt.id ? ACCENT : 'oklch(0.55 0.02 250)'}
+                        />
+                      : <MiniMap
+                          seed={i + 1}
+                          accent={active === rt.id ? ACCENT : 'oklch(0.55 0.02 250)'}
+                        />}
                   </div>
                   <div className="route-info">
                     <h4 style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
