@@ -6,6 +6,8 @@ import { GpxPoint } from '@/lib/gpx';
 export interface LiveMapProps {
   points: GpxPoint[];
   distanceKm: number;
+  /** Current gradient (%) — interpolated from GPX. Drives the floating tag on the marker. */
+  currentGrade?: number;
 }
 
 // Leaflet uses window — must be loaded client-side only

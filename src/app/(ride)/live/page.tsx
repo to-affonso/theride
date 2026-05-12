@@ -1,14 +1,38 @@
 'use client';
 
+/**
+ * Live ride page.
+ *
+ * Layout (Sprint 4):
+ *   ┌──────────────┐  ┌─────────────────┐  ┌──────────────┐
+ *   │ Route name   │  │   T E M P O     │  │  Distância   │
+ *   │              │  │   (centro)      │  │              │
+ *   └──────────────┘  └─────────────────┘  └──────────────┘
+ *                          [ map fills background ]
+ *                          [ rider marker + gradient tag ]
+ *                          [ elevation track ]
+ *   ┌─Power─┐ ┌─Cadence─┐ ┌─HR─┐ ┌─Speed─┐    play strip
+ *
+ * Power and HR cards colour-code by zone (POWER_ZONES / HR_ZONES from
+ * `lib/zones.ts`), matching the post-ride report.
+ *
+ * Power and HR primary value uses 3-second rolling average by default; a
+ * toggle in the in-ride settings popover switches to instant (1s).
+ */
+
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useBleStore } from '@/stores/bleStore';
 import { useRouteStore } from '@/stores/routeStore';
+import { useAthleteStore } from '@/stores/athleteStore';
 import { Icons } from '@/components/icons';
 import { DeviceModal } from '@/components/DeviceModal';
 import LiveMap from '@/components/LiveMap';
 import { gradeAt, positionAt } from '@/lib/gpx';
-import { getPowerZone } from '@/lib/zones';
+import { getPowerZone, getHrZone } from '@/lib/zones';
+import { LapChip } from '@/components/live/LapChip';
+import { DisconnectModal } from '@/components/live/DisconnectModal';
+import { LiveSettingsPopover } from '@/components/live/LiveSettingsPopover';
 
 const ACCENT = '#D5FF00';
 
@@ -28,7 +52,7 @@ function synthElevAt(t: number) {
   return Math.max(0, Math.min(1, v));
 }
 
-function SyntheticMapCanvas({ progress }: { progress: number }) {
+function SyntheticMapCanvas({ progress, currentGrade }: { progress: number; currentGrade: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 1440, h: 836 });
 
@@ -64,6 +88,9 @@ function SyntheticMapCanvas({ progress }: { progress: number }) {
     const i = Math.min(ROUTE_PTS.length - 1, Math.floor(t * ROUTE_PTS.length));
     return { p: ROUTE_PTS[i], km: Math.round(t * 24.6 * 10) / 10 };
   });
+
+  const gradeColor = currentGrade > 0 ? '#FF9F43' : currentGrade < -1 ? '#4ade80' : 'var(--fg)';
+  const gradeSign  = currentGrade >= 0 ? '+' : '';
 
   return (
     <div ref={ref} className="map-canvas">
@@ -109,11 +136,33 @@ function SyntheticMapCanvas({ progress }: { progress: number }) {
             </g>
           );
         })()}
-        <g transform={`translate(${px} ${py}) rotate(${ang})`}>
-          <circle r="22" fill={ACCENT} opacity="0.12"/>
-          <circle r="14" fill={ACCENT} opacity="0.22"/>
-          <circle r="7" fill={ACCENT} stroke="var(--bg)" strokeWidth="2.5"/>
-          <path d="M0 -16 L6 -8 L-6 -8 Z" fill={ACCENT}/>
+        <g transform={`translate(${px} ${py})`}>
+          <g transform={`rotate(${ang})`}>
+            <circle r="22" fill={ACCENT} opacity="0.12"/>
+            <circle r="14" fill={ACCENT} opacity="0.22"/>
+            <circle r="7" fill={ACCENT} stroke="var(--bg)" strokeWidth="2.5"/>
+            <path d="M0 -16 L6 -8 L-6 -8 Z" fill={ACCENT}/>
+          </g>
+          {/* Floating gradient tag — counter-rotates with marker so text stays upright */}
+          <g transform="translate(20, -8)">
+            <rect
+              x={0} y={-12} rx={6} ry={6}
+              width={62} height={22}
+              fill="rgba(0,0,0,0.78)"
+              stroke="var(--line-soft)"
+              strokeWidth={1}
+            />
+            <text
+              x={31} y={3}
+              textAnchor="middle"
+              fontFamily="JetBrains Mono"
+              fontSize="11.5"
+              fontWeight="600"
+              fill={gradeColor}
+            >
+              {gradeSign}{currentGrade.toFixed(1)}%
+            </text>
+          </g>
         </g>
         <rect width="100%" height="100%" fill="url(#map-vignette)"/>
       </svg>
@@ -121,31 +170,38 @@ function SyntheticMapCanvas({ progress }: { progress: number }) {
   );
 }
 
-// Power zones imported from @/lib/zones (single source of truth — see design-system.md).
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function LivePage() {
   const router = useRouter();
 
   const power        = useBleStore(s => s.power);
+  const power3s      = useBleStore(s => s.power3s);
   const cadence      = useBleStore(s => s.cadence);
   const hr           = useBleStore(s => s.hr);
+  const hr3s         = useBleStore(s => s.hr3s);
   const speed        = useBleStore(s => s.speed);
   const elapsed      = useBleStore(s => s.elapsed);
   const distanceKm   = useBleStore(s => s.distanceKm);
   const ftp          = useBleStore(s => s.ftp);
+  const smoothing    = useBleStore(s => s.smoothing);
+  const laps         = useBleStore(s => s.laps);
   const sessionPaused  = useBleStore(s => s.sessionPaused);
   const startSession   = useBleStore(s => s.startSession);
   const pauseSession   = useBleStore(s => s.pauseSession);
   const resumeSession  = useBleStore(s => s.resumeSession);
   const setGrade       = useBleStore(s => s.setGrade);
+  const addLap         = useBleStore(s => s.addLap);
 
   const route     = useRouteStore(s => s.selectedRoute);
   const gpxPoints = useRouteStore(s => s.gpxPoints);
 
+  const athlete = useAthleteStore(s => s.athlete);
+  const maxHr   = athlete?.max_hr ?? 189;
+
   const hasGpx = gpxPoints !== null && gpxPoints.length > 0;
 
-  const [devModalOpen, setDevModalOpen] = useState(false);
+  const [devModalOpen, setDevModalOpen]   = useState(false);
+  const [settingsOpen, setSettingsOpen]   = useState(false);
   const wasRunningRef   = useRef(false);
   const lastGradeRef    = useRef<number | null>(null);
   const gradeTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -191,6 +247,7 @@ export default function LivePage() {
   const hh = String(Math.floor(elapsed / 3600)).padStart(2, '0');
   const mm = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
   const ss = String(elapsed % 60).padStart(2, '0');
+  const timeStr = elapsed >= 3600 ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`;
 
   // ── Progress ─────────────────────────────────────────────────────────────────
   const routeDist    = route?.distance_km ?? (hasGpx ? (gpxPoints[gpxPoints.length - 1]?.distKm ?? 24.6) : 24.6);
@@ -199,9 +256,15 @@ export default function LivePage() {
     ? Math.min(0.999, distanceKm / routeDist)
     : Math.min(0.999, elapsed / (routeTimeMin * 60));
 
-  // ── Metrics ──────────────────────────────────────────────────────────────────
-  const zone    = power !== null ? getPowerZone(power, ftp) : null;
-  const zonePct  = power !== null ? Math.min(100, (power / ftp) / 1.5 * 100) : 0;
+  // ── Smoothed values for primary display ──────────────────────────────────────
+  const powerDisplay = smoothing === '3s' && power3s != null ? Math.round(power3s) : power;
+  const hrDisplay    = smoothing === '3s' && hr3s    != null ? Math.round(hr3s)    : hr;
+
+  // ── Zone colors (live, matches design-system zones) ──────────────────────────
+  const pZone = powerDisplay != null && powerDisplay > 0 ? getPowerZone(powerDisplay, ftp)         : null;
+  const hZone = hrDisplay    != null && hrDisplay    > 0 ? getHrZone(hrDisplay,       maxHr)       : null;
+  const zonePct  = powerDisplay != null ? Math.min(100, (powerDisplay / ftp) / 1.5 * 100) : 0;
+  const hrPct    = hrDisplay    != null ? Math.min(100, (hrDisplay / maxHr) * 100)       : 0;
 
   // ── Elevation / grade ────────────────────────────────────────────────────────
   const currentGrade = hasGpx
@@ -240,7 +303,6 @@ export default function LivePage() {
       })()
     : synthElevAt(progress);
 
-  // x position of current location on elevation SVG (0–100)
   const elevX = hasGpx
     ? (distanceKm / (gpxPoints[gpxPoints.length - 1].distKm || 1)) * 99
     : progress * 100;
@@ -253,11 +315,11 @@ export default function LivePage() {
 
         {/* ── Map ─────────────────────────────────────────────────────────── */}
         {hasGpx
-          ? <div className="map-canvas"><LiveMap points={gpxPoints} distanceKm={distanceKm}/></div>
-          : <SyntheticMapCanvas progress={progress}/>
+          ? <div className="map-canvas"><LiveMap points={gpxPoints} distanceKm={distanceKm} currentGrade={currentGrade}/></div>
+          : <SyntheticMapCanvas progress={progress} currentGrade={currentGrade}/>
         }
 
-        {/* ── Top overlays ─────────────────────────────────────────────────── */}
+        {/* ── Top overlays: route (L) · TIME centered (M) · distance (R) ──── */}
         <div className="live-top">
           <div className="left">
             <div className="ride-tag">
@@ -266,21 +328,26 @@ export default function LivePage() {
             </div>
           </div>
 
-          <div className="ride-tag" style={{ pointerEvents: 'none' }}>
-            <div className="sub">Distância</div>
-            <div className="name" style={{ fontFamily: "'JetBrains Mono'", letterSpacing: '-0.02em' }}>
-              {distanceKm.toFixed(2)}<span style={{ fontSize: 11, color: 'var(--fg-3)', fontWeight: 500, marginLeft: 4 }}>km</span>
-            </div>
+          {/* Time — protagonist of the top bar, big number, centered */}
+          <div className="live-top-time">
+            <div className="lbl">Tempo</div>
+            <div className="v">{timeStr}</div>
+            {sessionPaused && <div className="paused-pill">Pausado</div>}
           </div>
 
           <div className="right">
             <div className="ride-tag">
-              <div className="sub">Tempo</div>
+              <div className="sub">Distância</div>
               <div className="name" style={{ fontFamily: "'JetBrains Mono'", letterSpacing: '-0.02em' }}>
-                {elapsed >= 3600 ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`}
+                {distanceKm.toFixed(2)}<span style={{ fontSize: 11, color: 'var(--fg-3)', fontWeight: 500, marginLeft: 4 }}>km</span>
               </div>
             </div>
           </div>
+        </div>
+
+        {/* ── Lap chip (auto-hides 8s after lap close) ─────────────────────── */}
+        <div className="lap-chip-anchor">
+          <LapChip laps={laps}/>
         </div>
 
         {/* ── Elevation track ──────────────────────────────────────────────── */}
@@ -309,21 +376,24 @@ export default function LivePage() {
           </svg>
         </div>
 
-        {/* ── HUD rail ─────────────────────────────────────────────────────── */}
+        {/* ── HUD rail (Power + Cadence + HR + Speed) ─────────────────────── */}
         <div className="hud-rail">
-          <div className="metric" style={{ color: zone?.color ?? 'var(--fg)' }}>
+          {/* Power — zone-coloured */}
+          <div className="metric">
             <div className="lbl">
               <span>Potência</span>
-              {zone && <span>{zone.label}</span>}
+              {pZone && <span style={{ color: pZone.color }}>{pZone.label} · {pZone.name}</span>}
             </div>
-            <div className="v" style={{ color: power !== null ? zone?.color ?? ACCENT : 'var(--fg-3)' }}>
-              {power ?? '—'}
+            <div className="v" style={{ color: pZone?.color ?? (powerDisplay != null ? 'var(--fg)' : 'var(--fg-3)') }}>
+              {powerDisplay ?? '—'}
             </div>
             <div className="sub">
-              <span>W</span>
-              {power !== null && ftp > 0 && <span>{Math.round(power / ftp * 100)}% FTP</span>}
+              <span>W · {smoothing}</span>
+              {powerDisplay != null && ftp > 0 && <span>{Math.round(powerDisplay / ftp * 100)}% FTP</span>}
             </div>
-            {power !== null && <div className="bar" style={{ width: `${zonePct}%`, color: zone?.color }}/>}
+            {powerDisplay != null && (
+              <div className="bar" style={{ width: `${zonePct}%`, background: pZone?.color ?? ACCENT }}/>
+            )}
           </div>
 
           <div className="metric">
@@ -332,16 +402,25 @@ export default function LivePage() {
               {cadence ?? '—'}
             </div>
             <div className="sub"><span>rpm</span></div>
-            {cadence !== null && <div className="bar" style={{ width: `${Math.min(100, cadence / 120 * 100)}%`, color: ACCENT }}/>}
+            {cadence !== null && <div className="bar" style={{ width: `${Math.min(100, cadence / 120 * 100)}%`, background: ACCENT }}/>}
           </div>
 
-          <div className="metric" style={{ color: 'var(--accent-2)' }}>
-            <div className="lbl"><span>Freq. Cardíaca</span></div>
-            <div className="v" style={{ color: hr !== null ? 'var(--accent-2)' : 'var(--fg-3)' }}>
-              {hr ?? '—'}
+          {/* HR — zone-coloured */}
+          <div className="metric">
+            <div className="lbl">
+              <span>Freq. Cardíaca</span>
+              {hZone && <span style={{ color: hZone.color }}>{hZone.label} · {hZone.name}</span>}
             </div>
-            <div className="sub"><span>bpm</span></div>
-            {hr !== null && <div className="bar" style={{ width: `${Math.min(100, hr / 189 * 100)}%`, color: 'var(--accent-2)' }}/>}
+            <div className="v" style={{ color: hZone?.color ?? (hrDisplay != null ? 'var(--accent-2)' : 'var(--fg-3)') }}>
+              {hrDisplay ?? '—'}
+            </div>
+            <div className="sub">
+              <span>bpm · {smoothing}</span>
+              {hrDisplay != null && maxHr > 0 && <span>{Math.round(hrDisplay / maxHr * 100)}% FCmáx</span>}
+            </div>
+            {hrDisplay != null && (
+              <div className="bar" style={{ width: `${hrPct}%`, background: hZone?.color ?? 'var(--accent-2)' }}/>
+            )}
           </div>
 
           <div className="metric">
@@ -350,7 +429,7 @@ export default function LivePage() {
               {speed !== null ? speed.toFixed(1) : '—'}
             </div>
             <div className="sub"><span>km/h</span></div>
-            {speed !== null && <div className="bar" style={{ width: `${Math.min(100, speed / 60 * 100)}%`, color: 'var(--accent-4)' }}/>}
+            {speed !== null && <div className="bar" style={{ width: `${Math.min(100, speed / 60 * 100)}%`, background: 'var(--accent-4)' }}/>}
           </div>
         </div>
 
@@ -362,13 +441,23 @@ export default function LivePage() {
           <button className="primary" onClick={() => { pauseSession(); router.push('/summary'); }} title="Encerrar pedalada">
             <Icons.Stop size={14}/>
           </button>
+          <button onClick={() => addLap('manual')} title="Marcar lap">
+            <Icons.Flag size={16}/>
+          </button>
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => setSettingsOpen(o => !o)} title="Preferências do treino">
+              <Icons.Settings size={16}/>
+            </button>
+            <LiveSettingsPopover open={settingsOpen} onClose={() => setSettingsOpen(false)}/>
+          </div>
           <button onClick={openDeviceModal} title="Dispositivos">
-            <Icons.Settings size={16}/>
+            <Icons.Bluetooth size={16}/>
           </button>
         </div>
       </div>
 
       {devModalOpen && <DeviceModal onClose={closeDeviceModal}/>}
+      <DisconnectModal/>
     </div>
   );
 }
