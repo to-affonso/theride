@@ -4,17 +4,22 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { ElevationBg } from '@/components/auth/ElevationBg';
+
+type Mode = 'login' | 'reset';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail]       = useState('');
+  const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError]       = useState('');
-  const [loading, setLoading]   = useState(false);
+  const [error,    setError]    = useState('');
+  const [info,     setInfo]     = useState('');
+  const [loading,  setLoading]  = useState(false);
+  const [mode,     setMode]     = useState<Mode>('login');
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    setError('');
+    setError(''); setInfo('');
     setLoading(true);
 
     const supabase = createClient();
@@ -25,65 +30,131 @@ export default function LoginPage() {
       setLoading(false);
       return;
     }
-
     router.push('/route');
     router.refresh();
   }
 
+  async function handleReset(e: React.FormEvent) {
+    e.preventDefault();
+    setError(''); setInfo('');
+    if (!email) { setError('Informe seu e-mail.'); return; }
+    setLoading(true);
+
+    const supabase = createClient();
+    const redirectTo = typeof window !== 'undefined'
+      ? `${window.location.origin}/auth/reset-password`
+      : undefined;
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+
+    setLoading(false);
+    if (error) { setError(error.message); return; }
+    setInfo('Enviamos um link de redefinição para o seu e-mail.');
+  }
+
   return (
     <div className="auth-stage">
+      <ElevationBg/>
+
       <div className="auth-card">
         <div className="brand" style={{ marginBottom: 28 }}>
           <span className="brand-name">The <em>Ride</em></span>
         </div>
 
-        <h1>Bem-vindo de volta.</h1>
-        <p className="sub">Entre para continuar pedalando.</p>
+        {mode === 'login' ? (
+          <>
+            <h1>Bem-vindo de volta.</h1>
+            <p className="sub">Entre para continuar pedalando.</p>
 
-        <form onSubmit={handleSubmit}>
-          {error && <div className="auth-error">{error}</div>}
+            <form onSubmit={handleLogin}>
+              {error && <div className="auth-error">{error}</div>}
+              {info  && <div className="auth-info">{info}</div>}
 
-          <div className="field">
-            <label htmlFor="email">E-mail</label>
-            <input
-              id="email"
-              type="email"
-              placeholder="seu@email.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              required
-              autoFocus
-            />
-          </div>
+              <div className="field">
+                <label htmlFor="email">E-mail</label>
+                <input
+                  id="email" type="email"
+                  placeholder="seu@email.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  required autoFocus
+                />
+              </div>
 
-          <div className="field">
-            <label htmlFor="password">Senha</label>
-            <input
-              id="password"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-            />
-          </div>
+              <div className="field">
+                <label htmlFor="password">Senha</label>
+                <input
+                  id="password" type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                />
+              </div>
 
-          <button
-            type="submit"
-            className="btn primary"
-            style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
-            disabled={loading}
-          >
-            {loading ? 'Entrando...' : 'Entrar'}
-          </button>
-        </form>
+              <button
+                type="submit"
+                className="btn primary"
+                style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
+                disabled={loading}
+              >
+                {loading ? 'Entrando...' : 'Entrar'}
+              </button>
 
-        <p style={{ marginTop: 20, fontSize: 13, color: 'var(--fg-3)', textAlign: 'center' }}>
-          Não tem conta?{' '}
-          <Link href="/auth/signup" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
-            Criar conta
-          </Link>
-        </p>
+              <button
+                type="button"
+                onClick={() => { setMode('reset'); setError(''); setInfo(''); }}
+                className="auth-link-btn"
+              >
+                Esqueci minha senha
+              </button>
+            </form>
+
+            <p style={{ marginTop: 20, fontSize: 13, color: 'var(--fg-3)', textAlign: 'center' }}>
+              Não tem conta?{' '}
+              <Link href="/auth/signup" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+                Criar conta
+              </Link>
+            </p>
+          </>
+        ) : (
+          <>
+            <h1>Redefinir senha</h1>
+            <p className="sub">Enviaremos um link para você redefinir a senha.</p>
+
+            <form onSubmit={handleReset}>
+              {error && <div className="auth-error">{error}</div>}
+              {info  && <div className="auth-info">{info}</div>}
+
+              <div className="field">
+                <label htmlFor="email">E-mail</label>
+                <input
+                  id="email" type="email"
+                  placeholder="seu@email.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  required autoFocus
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="btn primary"
+                style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
+                disabled={loading}
+              >
+                {loading ? 'Enviando...' : 'Enviar link'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setMode('login'); setError(''); setInfo(''); }}
+                className="auth-link-btn"
+              >
+                Voltar para login
+              </button>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );

@@ -5,6 +5,10 @@ import { BleState, DeviceType, Lap } from '@/types';
 
 const INITIAL_DEVICE = { device: null, connected: false, connecting: false, name: '' };
 
+// Battery service UUID — added to every device's optionalServices so we
+// can opportunistically read battery level once connected.
+const BATTERY_SVC = '0000180f-0000-1000-8000-00805f9b34fb';
+
 const DEVICE_CONFIG = {
   trainer: {
     label: 'Smart Trainer',
@@ -19,6 +23,7 @@ const DEVICE_CONFIG = {
         '00001826-0000-1000-8000-00805f9b34fb',
         '00001818-0000-1000-8000-00805f9b34fb',
         '00001816-0000-1000-8000-00805f9b34fb',
+        BATTERY_SVC,
       ],
     },
   },
@@ -34,6 +39,7 @@ const DEVICE_CONFIG = {
       optionalServices: [
         '00001816-0000-1000-8000-00805f9b34fb',
         '00001818-0000-1000-8000-00805f9b34fb',
+        BATTERY_SVC,
       ],
     },
   },
@@ -43,7 +49,7 @@ const DEVICE_CONFIG = {
     protocols: ['BLE', 'HR'],
     request: {
       acceptAllDevices: true,
-      optionalServices: ['0000180d-0000-1000-8000-00805f9b34fb'],
+      optionalServices: ['0000180d-0000-1000-8000-00805f9b34fb', BATTERY_SVC],
     },
   },
 };
@@ -72,6 +78,38 @@ interface BleStore extends BleState {
   setAutoLapKm: (km: number | null) => void;
   /** Close the current lap and start a new one. */
   addLap: (kind?: 'manual' | 'auto') => void;
+
+  // ── Sprint 6 ────────────────────────────────────────────────────────────────
+  /**
+   * Attempt to re-pair without showing the chooser by walking
+   * `navigator.bluetooth.getDevices()` and matching the IDs remembered
+   * during previous successful connections. Silently no-op on browsers
+   * that don't expose `getDevices()`.
+   */
+  autoReconnect: () => Promise<void>;
+}
+
+/** localStorage key for the list of devices the user has paired with. */
+const KNOWN_DEVICES_KEY = 'theride.knownDevices';
+
+interface KnownDevice {
+  type: DeviceType;
+  id:   string;        // BluetoothDevice.id (stable per origin)
+  name: string;
+}
+
+function loadKnownDevices(): KnownDevice[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    return JSON.parse(localStorage.getItem(KNOWN_DEVICES_KEY) ?? '[]');
+  } catch { return []; }
+}
+
+function saveKnownDevice(entry: KnownDevice) {
+  if (typeof window === 'undefined') return;
+  const list = loadKnownDevices().filter(d => d.type !== entry.type);
+  list.push(entry);
+  localStorage.setItem(KNOWN_DEVICES_KEY, JSON.stringify(list));
 }
 
 export const useBleStore = create<BleStore>((set, get) => {
@@ -304,6 +342,36 @@ export const useBleStore = create<BleStore>((set, get) => {
     } catch { addLogImpl(`${name}: serviço HR não encontrado neste dispositivo.`, 'error'); }
   }
 
+  /**
+   * Subscribe to the standard Battery Service (0x180F). Best-effort —
+   * many trainers/sensors don't expose it, in which case we just leave
+   * `battery[type]` null.
+   */
+  async function subscribeBattery(
+    server: BluetoothRemoteGATTServer,
+    type: DeviceType,
+    name: string,
+  ) {
+    try {
+      const svc  = await server.getPrimaryService('0000180f-0000-1000-8000-00805f9b34fb');
+      const char = await svc.getCharacteristic('00002a19-0000-1000-8000-00805f9b34fb');
+      const read = await char.readValue();
+      const pct  = read.getUint8(0);
+      set(prev => ({ battery: { ...prev.battery, [type]: pct } }));
+      // Subscribe for live updates if supported.
+      try {
+        await char.startNotifications();
+        char.addEventListener('characteristicvaluechanged', (e: Event) => {
+          const v = (e.target as BluetoothRemoteGATTCharacteristic).value!;
+          set(prev => ({ battery: { ...prev.battery, [type]: v.getUint8(0) } }));
+        });
+      } catch { /* notifications unsupported — readValue was enough */ }
+      addLogImpl(`${name}: bateria ${pct}%.`, 'info');
+    } catch {
+      // Not all devices advertise battery — silent fail.
+    }
+  }
+
   /** Close the current lap. Computes avg power/HR from the running deltas. */
   function addLapImpl(kind: 'manual' | 'auto' = 'manual') {
     const s = get();
@@ -384,6 +452,8 @@ export const useBleStore = create<BleStore>((set, get) => {
     log: [],
     deviceConfig: DEVICE_CONFIG,
 
+    battery: { trainer: null, cadence: null, hr: null },
+
     // ── Sprint 4 ──
     power3s:   null,
     hr3s:      null,
@@ -400,6 +470,47 @@ export const useBleStore = create<BleStore>((set, get) => {
     setAutoLapKm:  (km) => set({ autoLapKm: km }),
     addLap:        (kind = 'manual') => addLapImpl(kind),
     dismissDisconnect: () => set({ disconnectAlert: null }),
+
+    autoReconnect: async () => {
+      // Web Bluetooth's "Permitted Devices" API is gated behind a flag in
+      // older Chrome and missing entirely on Safari. Bail out silently.
+      const nb = navigator.bluetooth as Bluetooth & { getDevices?: () => Promise<BluetoothDevice[]> };
+      if (!nb || typeof nb.getDevices !== 'function') return;
+
+      const known = loadKnownDevices();
+      if (known.length === 0) return;
+
+      let granted: BluetoothDevice[] = [];
+      try { granted = await nb.getDevices(); }
+      catch { return; }
+
+      for (const entry of known) {
+        // Skip if already connected.
+        if (get().devices[entry.type].connected) continue;
+        const dev = granted.find(d => d.id === entry.id);
+        if (!dev) continue;
+
+        try {
+          set(prev => ({
+            devices: { ...prev.devices, [entry.type]: { device: dev, connected: false, connecting: true, name: entry.name } },
+          }));
+          const server = await dev.gatt!.connect();
+          if (entry.type === 'trainer') await subscribeTrainer(server, entry.name);
+          if (entry.type === 'cadence') await subscribeCadence(server, entry.name);
+          if (entry.type === 'hr')      await subscribeHR(server, entry.name);
+          subscribeBattery(server, entry.type, entry.name);
+          set(prev => ({
+            devices: { ...prev.devices, [entry.type]: { device: dev, connected: true, connecting: false, name: entry.name } },
+          }));
+          addLogImpl(`${entry.name}: reconectado automaticamente.`, 'success');
+        } catch (err) {
+          set(prev => ({
+            devices: { ...prev.devices, [entry.type]: { ...INITIAL_DEVICE } },
+          }));
+          addLogImpl(`Auto-reconexão falhou (${entry.name}): ${(err as Error).message}`, 'warn');
+        }
+      }
+    },
 
     reconnect: async (type) => {
       const d = get().devices[type];
@@ -575,6 +686,13 @@ export const useBleStore = create<BleStore>((set, get) => {
         if (type === 'cadence') await subscribeCadence(server, devName);
         if (type === 'hr')      await subscribeHR(server, devName);
 
+        // Best-effort battery read — silently skipped if unsupported.
+        subscribeBattery(server, type, devName);
+
+        // Remember this device so a future visit can auto-reconnect without
+        // showing the chooser (uses navigator.bluetooth.getDevices()).
+        saveKnownDevice({ type, id: device.id, name: devName });
+
         if (!get().sessionStart) startSession();
       } catch (err: unknown) {
         set(prev => ({ devices: { ...prev.devices, [type]: { ...INITIAL_DEVICE } } }));
@@ -591,6 +709,7 @@ export const useBleStore = create<BleStore>((set, get) => {
       set(prev => {
         const next = { ...prev };
         next.devices = { ...prev.devices, [type]: { ...INITIAL_DEVICE } };
+        next.battery = { ...prev.battery, [type]: null };
         if (prev.sources.power   === type) { next.power   = null; next.sources = { ...next.sources, power:   null }; }
         if (prev.sources.cadence === type) { next.cadence = null; next.sources = { ...next.sources, cadence: null }; }
         if (prev.sources.hr      === type) { next.hr      = null; next.sources = { ...next.sources, hr:      null }; }

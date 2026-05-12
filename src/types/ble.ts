@@ -80,6 +80,9 @@ export interface BleState {
   deviceConfig: Record<DeviceType, DeviceConfig>;
   ergEnabled: boolean;
 
+  /** Per-device battery level (0-100). Null if unsupported or not yet read. */
+  battery: Record<DeviceType, number | null>;
+
   // ── Sprint 4 additions ─────────────────────────────────────────────────────
   /** 3-second rolling average of power. Null when buffer is empty. */
   power3s: number | null;

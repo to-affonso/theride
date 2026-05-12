@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useBleStore } from '@/stores/bleStore';
 import { useAthleteStore } from '@/stores/athleteStore';
@@ -8,12 +8,17 @@ import { useAntStore } from '@/stores/antStore';
 import { createClient } from '@/lib/supabase/client';
 import { Icons } from '@/components/icons';
 import { DeviceType } from '@/types';
+import { BatteryIndicator } from '@/components/pair/BatteryIndicator';
 
-const DEVICE_TYPES: { id: DeviceType; kind: string; sub: string }[] = [
-  { id: 'trainer', kind: 'Smart Trainer',      sub: 'FTMS / Cycling Power · potência, cadência e velocidade' },
+// Trainer is required; the other sensors are nice-to-have.
+const ESSENTIAL: { id: DeviceType; kind: string; sub: string }[] = [
+  { id: 'trainer', kind: 'Smart Trainer', sub: 'FTMS / Cycling Power · potência, cadência e velocidade' },
+];
+const COMPLEMENTARY: { id: DeviceType; kind: string; sub: string }[] = [
   { id: 'cadence', kind: 'Sensor de Cadência', sub: 'CSC / Cycling Power · cadência (opcional se o trainer já fornece)' },
   { id: 'hr',      kind: 'Monitor Cardíaco',   sub: 'Heart Rate Service · frequência cardíaca' },
 ];
+const DEVICE_TYPES = [...ESSENTIAL, ...COMPLEMENTARY];
 
 const LOG_COLORS = { success: 'var(--ok)', error: 'var(--warn)', warn: '#FF9F43', info: 'var(--fg-3)' };
 
@@ -45,7 +50,9 @@ export default function PairPage() {
   const router     = useRouter();
   const connect    = useBleStore(s => s.connect);
   const disconnect = useBleStore(s => s.disconnect);
+  const autoReconnect = useBleStore(s => s.autoReconnect);
   const devices    = useBleStore(s => s.devices);
+  const battery    = useBleStore(s => s.battery);
   const deviceConfig = useBleStore(s => s.deviceConfig);
   const isSupported = useBleStore(s => s.isSupported);
   const ergEnabled = useBleStore(s => s.ergEnabled);
@@ -69,6 +76,12 @@ export default function PairPage() {
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ name: '', ftp: '', max_hr: '', weight: '', bike: '' });
+
+  // Sprint 6: try to silently re-pair known devices on mount (no chooser).
+  useEffect(() => {
+    if (isSupported) autoReconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSupported]);
 
   function startEdit() {
     setDraft({
@@ -106,6 +119,63 @@ export default function PairPage() {
     connect(id);
   }
 
+  function renderDeviceCard(dt: { id: DeviceType; kind: string; sub: string }) {
+    const d   = devices[dt.id];
+    const Ico = DEVICE_ICON[dt.id];
+    const cfg = deviceConfig[dt.id];
+    const bat = battery[dt.id];
+    return (
+      <div
+        key={dt.id}
+        className={`device ${d.connected ? 'connected' : ''} ${d.connecting ? 'scanning' : ''}`}
+        onClick={() => isSupported && handleDeviceClick(dt.id)}
+        style={{ cursor: isSupported ? 'pointer' : 'not-allowed', opacity: isSupported ? 1 : 0.5 }}
+      >
+        <div className="device-head">
+          <div style={{ display:'flex', gap:14, alignItems:'flex-start' }}>
+            <div className="device-icon" style={d.connected
+              ? { background:'#1F1F1F', borderColor:ACCENT, color:ACCENT }
+              : { color:'var(--fg-2)' }}>
+              <Ico size={20} c={d.connected ? ACCENT : 'currentColor'}/>
+            </div>
+            <div>
+              <div className="device-name">
+                {d.connected ? d.name : d.connecting ? 'Conectando...' : dt.kind}
+              </div>
+              <div className="device-sub">{dt.kind} · {dt.sub}</div>
+            </div>
+          </div>
+
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            {/* Battery — only when connected and the device reports it */}
+            {d.connected && bat != null && <BatteryIndicator percent={bat}/>}
+
+            {/* Signal: green dot while connected (RSSI not exposed by Web BT) */}
+            <div className="device-status">
+              <span className={`dot ${d.connected ? '' : d.connecting ? 'warn' : 'off'}`}/>
+              {d.connected ? 'Conectado' : d.connecting ? 'Procurando...' : 'Desconectado'}
+            </div>
+          </div>
+        </div>
+
+        <div className="device-actions">
+          <div className="device-meta">
+            {d.connected
+              ? <span style={{ fontSize:11, color:'var(--accent-2)' }}>Clique para desconectar</span>
+              : <span style={{ fontSize:11, color:'var(--fg-3)' }}>Clique para conectar via BLE</span>}
+          </div>
+          <div className="protocol">
+            {cfg.protocols.map(p =>
+              <span key={p} className={d.connected ? 'on' : ''}>{p}</span>
+            )}
+          </div>
+        </div>
+
+        {d.connecting && <div className="scanning-bar"/>}
+      </div>
+    );
+  }
+
   return (
     <div className="screen">
       <div className="pair">
@@ -129,55 +199,22 @@ export default function PairPage() {
             </p>
           </div>
 
+          {/* Essential — Smart Trainer */}
+          <div className="device-group-label">
+            <span>Essencial</span>
+            <span className="device-group-hint">Obrigatório para iniciar uma sessão</span>
+          </div>
           <div className="device-grid">
-            {DEVICE_TYPES.map(dt => {
-              const d   = devices[dt.id];
-              const Ico = DEVICE_ICON[dt.id];
-              const cfg = deviceConfig[dt.id];
-              return (
-                <div
-                  key={dt.id}
-                  className={`device ${d.connected ? 'connected' : ''} ${d.connecting ? 'scanning' : ''}`}
-                  onClick={() => isSupported && handleDeviceClick(dt.id)}
-                  style={{ cursor: isSupported ? 'pointer' : 'not-allowed', opacity: isSupported ? 1 : 0.5 }}
-                >
-                  <div className="device-head">
-                    <div style={{ display:'flex', gap:14, alignItems:'flex-start' }}>
-                      <div className="device-icon" style={d.connected
-                        ? { background:'#1F1F1F', borderColor:ACCENT, color:ACCENT }
-                        : { color:'var(--fg-2)' }}>
-                        <Ico size={20} c={d.connected ? ACCENT : 'currentColor'}/>
-                      </div>
-                      <div>
-                        <div className="device-name">
-                          {d.connected ? d.name : d.connecting ? 'Conectando...' : dt.kind}
-                        </div>
-                        <div className="device-sub">{dt.kind} · {dt.sub}</div>
-                      </div>
-                    </div>
-                    <div className="device-status">
-                      <span className={`dot ${d.connected ? '' : d.connecting ? 'warn' : 'off'}`}/>
-                      {d.connected ? 'Conectado' : d.connecting ? 'Procurando...' : 'Desconectado'}
-                    </div>
-                  </div>
+            {ESSENTIAL.map(dt => renderDeviceCard(dt))}
+          </div>
 
-                  <div className="device-actions">
-                    <div className="device-meta">
-                      {d.connected
-                        ? <span style={{ fontSize:11, color:'var(--accent-2)' }}>Clique para desconectar</span>
-                        : <span style={{ fontSize:11, color:'var(--fg-3)' }}>Clique para conectar via BLE</span>}
-                    </div>
-                    <div className="protocol">
-                      {cfg.protocols.map(p =>
-                        <span key={p} className={d.connected ? 'on' : ''}>{p}</span>
-                      )}
-                    </div>
-                  </div>
-
-                  {d.connecting && <div className="scanning-bar"/>}
-                </div>
-              );
-            })}
+          {/* Complementary — cadence, HR, ANT+ */}
+          <div className="device-group-label">
+            <span>Complementares</span>
+            <span className="device-group-hint">Opcional — adicionam mais dados ao seu treino</span>
+          </div>
+          <div className="device-grid">
+            {COMPLEMENTARY.map(dt => renderDeviceCard(dt))}
 
             {/* ANT+ card */}
             <div

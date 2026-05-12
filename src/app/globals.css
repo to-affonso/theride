@@ -892,3 +892,67 @@ button { font-family: inherit; }
 }
 .gradient-tooltip.leaflet-tooltip:before,
 .gradient-tooltip.leaflet-tooltip:after { display: none; }
+
+/* ── Sprint 6 — auth background ──────────────────────────────────────────── */
+.auth-bg {
+  position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  overflow: hidden;
+}
+.auth-bg-svg {
+  position: absolute; left: 0; bottom: 12%;
+  width: 65%; height: 38%;
+  min-width: 720px;
+}
+@keyframes auth-bg-pan {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-1000px); }
+}
+.auth-bg-scroll {
+  animation: auth-bg-pan 60s linear infinite;
+}
+.auth-stage { position: relative; }
+.auth-stage .auth-card { position: relative; z-index: 1; }
+
+/* ── Sprint 6 — auth: inline link button (Esqueci minha senha, voltar) ───── */
+.auth-link-btn {
+  width: 100%; margin-top: 12px;
+  background: transparent; border: 0;
+  color: var(--fg-3);
+  font-size: 12.5px; font-family: inherit;
+  cursor: pointer; padding: 6px;
+  text-align: center; letter-spacing: .02em;
+}
+.auth-link-btn:hover { color: var(--accent); }
+
+.auth-info {
+  padding: 10px 12px; margin-bottom: 12px;
+  background: rgba(213,255,0,.08);
+  border: 1px solid rgba(213,255,0,.3);
+  border-radius: 8px;
+  font-size: 12.5px; color: var(--accent);
+}
+
+/* ── Sprint 6 — pair page device groups ──────────────────────────────────── */
+.device-group-label {
+  display: flex; align-items: baseline; gap: 12px;
+  margin: 14px 0 -2px;
+}
+.device-group-label > span:first-child {
+  font-family: 'JetBrains Mono'; font-size: 10.5px; font-weight: 600;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--fg-2);
+}
+.device-group-hint {
+  font-size: 11.5px; color: var(--fg-3); font-style: italic;
+}
+
+/* Battery indicator */
+.battery-indicator {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 7px;
+  border: 1px solid var(--line-soft); border-radius: 999px;
+  background: rgba(20,22,28,.5);
+}
+.battery-indicator-pct {
+  font-family: 'JetBrains Mono'; font-size: 10.5px;
+  font-weight: 600; letter-spacing: .04em;
+}
