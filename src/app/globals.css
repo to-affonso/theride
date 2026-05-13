@@ -31,7 +31,7 @@ button { font-family: inherit; }
 
 /* ── Stage ─────────────────────────────────────────────────────────────── */
 .stage {
-  width: 1440px; height: 100vh;
+  width: 100%; height: 100vh;
   position: relative; overflow: hidden;
   background: var(--bg); margin: 0 auto;
 }
@@ -78,7 +78,7 @@ button { font-family: inherit; }
   letter-spacing: 0.105em;
   text-transform: uppercase;
   color: var(--fg);
-  padding: 16px 4px;
+  padding: 23px 4px;
   border-bottom: 4px solid transparent;
   text-decoration: none;
   line-height: 1;
