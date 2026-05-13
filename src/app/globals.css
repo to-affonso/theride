@@ -66,6 +66,27 @@ button { font-family: inherit; }
 
 .chrome-right { position: relative; display: flex; align-items: center; gap: 10px; color: var(--fg-2); font-size: 12px; }
 
+.chrome-nav {
+  display: flex; align-items: center; gap: 24px;
+  height: 100%;
+}
+.chrome-nav .nav-item {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.105em;
+  text-transform: uppercase;
+  color: var(--fg);
+  padding: 16px 4px;
+  border-bottom: 4px solid transparent;
+  text-decoration: none;
+  line-height: 1;
+  transition: color .15s ease, border-color .15s ease;
+}
+.chrome-nav .nav-item[data-active="true"] { border-bottom-color: var(--accent); }
+.chrome-nav .nav-item.disabled { color: var(--fg-3); cursor: not-allowed; pointer-events: none; }
+.chrome-nav .nav-item:hover:not(.disabled):not([data-active="true"]) { color: var(--accent); }
+
 /* ── Pill & Chip ────────────────────────────────────────────────────────── */
 .pill {
   display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px;
