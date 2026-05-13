@@ -463,10 +463,13 @@ button { font-family: inherit; }
 .auth-split__hero img {
   filter: grayscale(1) contrast(1.05) brightness(0.95);
 }
-/* Span ElevationBg across the entire layout, overlaying the photo at bottom */
+/* Span ElevationBg across the entire layout, overlaying the photo at bottom.
+   The SVG is 200% wide (two viewport-width copies side by side) so the
+   `auth-bg-pan` -50% translate always keeps the right edge covered — no
+   visible cut at any moment of the loop. */
 .auth-split > .auth-bg { z-index: 2; }
 .auth-split > .auth-bg .auth-bg-svg {
-  left: 0; right: 0; width: 100%; min-width: 0;
+  left: 0; width: 200%; min-width: 0;
 }
 
 @media (max-width: 880px) {
@@ -949,10 +952,13 @@ button { font-family: inherit; }
 }
 @keyframes auth-bg-pan {
   from { transform: translateX(0); }
-  to   { transform: translateX(-1000px); }
+  /* SVG width is 200% of container → -50% of own width = -100% of container
+     = exactly one full copy. Keeps the right edge always covered. */
+  to   { transform: translateX(-50%); }
 }
 .auth-bg-scroll {
   animation: auth-bg-pan 60s linear infinite;
+  will-change: transform;
 }
 .auth-stage { position: relative; }
 .auth-stage .auth-card { position: relative; z-index: 1; }

@@ -34,7 +34,7 @@ export function ElevationBg() {
   return (
     <div className="auth-bg">
       <svg
-        className="auth-bg-svg"
+        className="auth-bg-svg auth-bg-scroll"
         viewBox="0 0 2000 200"
         preserveAspectRatio="none"
         aria-hidden="true"
@@ -46,17 +46,21 @@ export function ElevationBg() {
           </linearGradient>
         </defs>
 
-        {/* Two stitched copies scroll left over 60 s for a seamless loop. */}
-        <g className="auth-bg-scroll">
-          {/* Copy 1 — 0..1000 */}
+        {/*
+         * Two stitched copies, each spanning a full viewport-width worth of
+         * SVG units (1000). The SVG element itself is sized at 200% of the
+         * container and translated left by -50% of its own width per loop —
+         * which equals exactly one copy, keeping the right edge always
+         * covered. See `.auth-bg-svg` / `auth-bg-pan` in globals.css.
+         */}
+        {/* Copy 1 — 0..1000 */}
+        <path d={ELEV_PATH.fill} fill="url(#elevBgFill)"/>
+        <path d={ELEV_PATH.line} stroke={ACCENT} strokeWidth="1.3" fill="none" opacity="0.45"/>
+
+        {/* Copy 2 — 1000..2000 (translated, identical) */}
+        <g transform="translate(1000 0)">
           <path d={ELEV_PATH.fill} fill="url(#elevBgFill)"/>
           <path d={ELEV_PATH.line} stroke={ACCENT} strokeWidth="1.3" fill="none" opacity="0.45"/>
-
-          {/* Copy 2 — 1000..2000 (translated, identical) */}
-          <g transform="translate(1000 0)">
-            <path d={ELEV_PATH.fill} fill="url(#elevBgFill)"/>
-            <path d={ELEV_PATH.line} stroke={ACCENT} strokeWidth="1.3" fill="none" opacity="0.45"/>
-          </g>
         </g>
 
         {/* Sky grid lines for depth (static) */}
