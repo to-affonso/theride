@@ -52,7 +52,8 @@ export default function SummaryPage() {
     durationSeconds: elapsed,
     ftp,
     maxHr:           athlete?.max_hr ?? 190,
-  }), [sessionPowerSeries, sessionHrSeries, sessionCadenceSeries, elapsed, ftp, athlete?.max_hr]);
+    hrZoneBounds:    athlete?.hr_zones,
+  }), [sessionPowerSeries, sessionHrSeries, sessionCadenceSeries, elapsed, ftp, athlete?.max_hr, athlete?.hr_zones]);
 
   // ── Build an in-memory Session that mirrors what gets saved ───────────
   const startedAtIso = useMemo(
@@ -92,6 +93,7 @@ export default function SummaryPage() {
     devices: {
       trainer: devices.trainer.name || null,
       cadence: devices.cadence.name || null,
+      speed:   devices.speed.name   || null,
       hr:      devices.hr.name      || null,
     },
     created_at: startedAtIso,

@@ -5,7 +5,7 @@
  * Output keys match `PowerZoneId` / `HrZoneId` from `src/lib/zones.ts`.
  */
 
-import { POWER_ZONES, HR_ZONES, getPowerZone, getHrZone, PowerZoneId, HrZoneId } from '../zones';
+import { POWER_ZONES, buildHrZones, getPowerZone, getHrZone, PowerZoneId, HrZoneId } from '../zones';
 
 export type PowerZoneSeconds = Record<PowerZoneId, number>;
 export type HrZoneSeconds    = Record<HrZoneId, number>;
@@ -31,15 +31,19 @@ export function powerZoneDistribution(power: number[], ftp: number): PowerZoneSe
 /**
  * Distribution of seconds spent in each HR zone.
  * Assumes `hr` is 1Hz.
+ *
+ * @param bounds optional custom HR zone bounds (length 6, fractions of MaxHR).
+ *               When omitted, falls back to default Friel 7-zone bounds.
  */
-export function hrZoneDistribution(hr: number[], maxHr: number): HrZoneSeconds {
+export function hrZoneDistribution(hr: number[], maxHr: number, bounds?: readonly number[]): HrZoneSeconds {
+  const zones = buildHrZones(bounds);
   const result = {} as HrZoneSeconds;
-  for (const z of HR_ZONES) result[z.id] = 0;
+  for (const z of zones) result[z.id] = 0;
 
   if (maxHr <= 0) return result;
 
   for (const h of hr) {
-    const zone = getHrZone(h, maxHr);
+    const zone = getHrZone(h, maxHr, bounds);
     result[zone.id]++;
   }
 

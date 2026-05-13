@@ -254,6 +254,146 @@ button { font-family: inherit; }
   gap: 12px; padding-top: 18px; border-top: 1px solid var(--line-soft);
 }
 
+/* ── SETTINGS screen ────────────────────────────────────────────────────── */
+.settings-screen {
+  overflow-y: auto; overflow-x: hidden;
+  padding: 32px 64px 48px;
+  display: flex; flex-direction: column; gap: 0;
+}
+.settings-header { padding-bottom: 28px; }
+.settings-header .lede { margin-top: 6px; }
+
+.settings-section {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 64px;
+  padding: 28px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.settings-section:first-of-type { border-top: 1px solid var(--line-soft); }
+.settings-section-aside { padding-top: 4px; }
+.settings-section-title {
+  margin: 0 0 8px; font-family: 'JetBrains Mono'; font-size: 11px; font-weight: 700;
+  letter-spacing: .22em; text-transform: uppercase; color: var(--fg);
+}
+.settings-section-desc { font-size: 13px; color: var(--fg-2); line-height: 1.55; margin: 0; max-width: 320px; }
+.settings-section-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+/* Device group label inside section 1 */
+.device-group-label {
+  display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px;
+  font-family: 'JetBrains Mono'; font-size: 10.5px; font-weight: 500;
+  letter-spacing: .18em; text-transform: uppercase; color: var(--fg-2);
+}
+.device-group-hint {
+  font-family: 'Inter'; font-size: 11px; font-weight: 400; color: var(--fg-3);
+  letter-spacing: 0; text-transform: none;
+}
+.device-grid-2    { grid-template-columns: 1fr 1fr; }
+.device-grid-full { grid-template-columns: 1fr; }
+
+/* Editable row used in profile / FCmax / auto-lap distance */
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  outline: none;
+}
+.settings-row:not(.settings-row-static):hover { border-color: var(--line); }
+.settings-row:not(.settings-row-static):focus-visible { border-color: var(--accent); }
+.settings-row + .settings-row,
+.settings-row + .settings-row-static,
+.settings-row-static + .settings-row,
+.settings-row-static + .settings-row-static { margin-top: 6px; }
+
+.settings-row-static { cursor: default; }
+.settings-row-label  { font-size: 13px; color: var(--fg-2); }
+.settings-row-value  {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: 'JetBrains Mono'; font-size: 12.5px; color: var(--fg);
+}
+.settings-row-input {
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  font-family: 'JetBrains Mono';
+  font-size: 12.5px;
+  text-align: right;
+  padding: 2px 0;
+  outline: none;
+}
+.settings-row-input::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+.settings-row-unit { color: var(--fg-3); font-size: 11.5px; }
+
+.seg-row { display: inline-flex; gap: 6px; }
+
+/* ── HR Zone Slider ─────────────────────────────────────────────────────── */
+.hr-zone-slider-wrap { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+.hr-zone-slider {
+  position: relative; display: flex; height: 96px; width: 100%;
+  border-radius: 10px; overflow: hidden; background: var(--bg-3);
+  user-select: none; touch-action: none;
+}
+.hr-zone-segment {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  min-width: 0;
+  border-right: 1px solid rgba(10,10,10,.35);
+  transition: flex-grow .12s ease;
+}
+.hr-zone-segment:last-child { border-right: none; }
+.hr-zone-segment-label {
+  font-family: 'JetBrains Mono'; font-weight: 700; font-size: 11px;
+  letter-spacing: .14em; color: rgba(10,10,10,.85);
+  text-transform: uppercase;
+}
+.hr-zone-handle {
+  position: absolute; top: 0; bottom: 0;
+  width: 12px; transform: translateX(-50%);
+  background: var(--accent);
+  border: none;
+  border-radius: 2px;
+  cursor: ew-resize;
+  padding: 0;
+  box-shadow: 0 0 0 2px var(--bg-2);
+}
+.hr-zone-handle::after {
+  content: ""; position: absolute; left: 50%; top: -4px; transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 6px solid transparent; border-right: 6px solid transparent;
+  border-top: 6px solid var(--accent);
+}
+.hr-zone-handle.dragging,
+.hr-zone-handle:hover { background: var(--fg); }
+.hr-zone-handle.dragging::after,
+.hr-zone-handle:hover::after { border-top-color: var(--fg); }
+
+.hr-zone-legend { display: flex; width: 100%; }
+.hr-zone-legend-item {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-width: 0; padding: 4px 2px;
+  border-right: 1px solid transparent;
+}
+.hr-zone-legend-pct {
+  font-family: 'JetBrains Mono'; font-size: 11px; color: var(--fg-2);
+}
+.hr-zone-legend-bpm {
+  font-family: 'JetBrains Mono'; font-size: 10px; color: var(--fg-3);
+}
+
+.hr-zone-reset {
+  align-self: flex-end;
+  background: transparent; border: 1px solid var(--line-soft);
+  color: var(--fg-2); border-radius: 6px;
+  padding: 5px 10px; font-size: 11px;
+  cursor: pointer; font-family: inherit;
+}
+.hr-zone-reset:hover { color: var(--fg); border-color: var(--line); }
+
 /* ── ROUTE screen ───────────────────────────────────────────────────────── */
 .route       { display: grid; grid-template-columns: 1fr 480px; height: 100%; }
 .route-left  { padding: 28px 36px 28px 48px; display: flex; flex-direction: column; gap: 20px; overflow: hidden; }
@@ -588,6 +728,11 @@ button { font-family: inherit; }
 
 .workout-skeleton {
   height: 78px; background: linear-gradient(90deg, var(--bg-2) 0%, var(--bg-3) 50%, var(--bg-2) 100%);
+  background-size: 200% 100%; border-radius: 12px; border: 1px solid var(--line-soft);
+  animation: shimmer 1.6s linear infinite;
+}
+.route-skeleton {
+  height: 110px; background: linear-gradient(90deg, var(--bg-2) 0%, var(--bg-3) 50%, var(--bg-2) 100%);
   background-size: 200% 100%; border-radius: 12px; border: 1px solid var(--line-soft);
   animation: shimmer 1.6s linear infinite;
 }

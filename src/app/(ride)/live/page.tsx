@@ -174,16 +174,16 @@ function SyntheticMapCanvas({ progress, currentGrade }: { progress: number; curr
 export default function LivePage() {
   const router = useRouter();
 
-  const power        = useBleStore(s => s.power);
-  const power3s      = useBleStore(s => s.power3s);
-  const cadence      = useBleStore(s => s.cadence);
-  const hr           = useBleStore(s => s.hr);
-  const hr3s         = useBleStore(s => s.hr3s);
-  const speed        = useBleStore(s => s.speed);
-  const elapsed      = useBleStore(s => s.elapsed);
-  const distanceKm   = useBleStore(s => s.distanceKm);
-  const ftp          = useBleStore(s => s.ftp);
-  const smoothing    = useBleStore(s => s.smoothing);
+  const power           = useBleStore(s => s.power);
+  const powerSmoothed   = useBleStore(s => s.powerSmoothed);
+  const cadence         = useBleStore(s => s.cadence);
+  const hr              = useBleStore(s => s.hr);
+  const hrSmoothed      = useBleStore(s => s.hrSmoothed);
+  const speed           = useBleStore(s => s.speed);
+  const elapsed         = useBleStore(s => s.elapsed);
+  const distanceKm      = useBleStore(s => s.distanceKm);
+  const ftp             = useBleStore(s => s.ftp);
+  const smoothingSeconds = useBleStore(s => s.smoothingSeconds);
   const laps         = useBleStore(s => s.laps);
   const sessionPaused  = useBleStore(s => s.sessionPaused);
   const startSession   = useBleStore(s => s.startSession);
@@ -257,12 +257,14 @@ export default function LivePage() {
     : Math.min(0.999, elapsed / (routeTimeMin * 60));
 
   // ── Smoothed values for primary display ──────────────────────────────────────
-  const powerDisplay = smoothing === '3s' && power3s != null ? Math.round(power3s) : power;
-  const hrDisplay    = smoothing === '3s' && hr3s    != null ? Math.round(hr3s)    : hr;
+  // When smoothingSeconds is 1, the rolling avg buffer is ~1s wide → effectively instant.
+  // We still prefer the smoothed reading over raw `power`/`hr` to avoid sample-to-sample jitter.
+  const powerDisplay = powerSmoothed != null ? Math.round(powerSmoothed) : power;
+  const hrDisplay    = hrSmoothed    != null ? Math.round(hrSmoothed)    : hr;
 
   // ── Zone colors (live, matches design-system zones) ──────────────────────────
   const pZone = powerDisplay != null && powerDisplay > 0 ? getPowerZone(powerDisplay, ftp)         : null;
-  const hZone = hrDisplay    != null && hrDisplay    > 0 ? getHrZone(hrDisplay,       maxHr)       : null;
+  const hZone = hrDisplay    != null && hrDisplay    > 0 ? getHrZone(hrDisplay, maxHr, athlete?.hr_zones) : null;
   const zonePct  = powerDisplay != null ? Math.min(100, (powerDisplay / ftp) / 1.5 * 100) : 0;
   const hrPct    = hrDisplay    != null ? Math.min(100, (hrDisplay / maxHr) * 100)       : 0;
 
@@ -388,7 +390,7 @@ export default function LivePage() {
               {powerDisplay ?? '—'}
             </div>
             <div className="sub">
-              <span>W · {smoothing}</span>
+              <span>W · {smoothingSeconds}s</span>
               {powerDisplay != null && ftp > 0 && <span>{Math.round(powerDisplay / ftp * 100)}% FTP</span>}
             </div>
             {powerDisplay != null && (
@@ -415,7 +417,7 @@ export default function LivePage() {
               {hrDisplay ?? '—'}
             </div>
             <div className="sub">
-              <span>bpm · {smoothing}</span>
+              <span>bpm · {smoothingSeconds}s</span>
               {hrDisplay != null && maxHr > 0 && <span>{Math.round(hrDisplay / maxHr * 100)}% FCmáx</span>}
             </div>
             {hrDisplay != null && (

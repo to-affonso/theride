@@ -29,6 +29,8 @@ export interface SessionAggregatesInput {
   durationSeconds: number;
   ftp: number;
   maxHr: number;
+  /** Custom HR zone bounds (length 6, fractions of MaxHR). Optional — defaults to Friel. */
+  hrZoneBounds?: readonly number[];
 }
 
 export interface SessionAggregates {
@@ -61,7 +63,7 @@ export interface SessionAggregates {
 }
 
 export function computeSessionAggregates(input: SessionAggregatesInput): SessionAggregates {
-  const { powerSeries, hrSeries, cadenceSeries, durationSeconds, ftp, maxHr } = input;
+  const { powerSeries, hrSeries, cadenceSeries, durationSeconds, ftp, maxHr, hrZoneBounds } = input;
 
   const avgPower    = meanRoundedExcludingZeros(powerSeries);
   const np          = normalizedPower(powerSeries);
@@ -80,7 +82,7 @@ export function computeSessionAggregates(input: SessionAggregatesInput): Session
   const dec         = decoupling(powerSeries, hrSeries);
   const bestPower   = meanMaxPower(powerSeries);
   const powerZones  = powerZoneDistribution(powerSeries, ftp);
-  const hrZones     = hrZoneDistribution(hrSeries, maxHr);
+  const hrZones     = hrZoneDistribution(hrSeries, maxHr, hrZoneBounds);
 
   return {
     avgPower,

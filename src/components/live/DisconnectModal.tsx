@@ -15,10 +15,12 @@
 
 import { useBleStore } from '@/stores/bleStore';
 import { Icons } from '@/components/icons';
+import type { DeviceType } from '@/types';
 
-const LABELS: Record<'trainer' | 'cadence' | 'hr', string> = {
+const LABELS: Record<DeviceType, string> = {
   trainer: 'Smart Trainer',
   cadence: 'Sensor de cadência',
+  speed:   'Sensor de velocidade',
   hr:      'Monitor cardíaco',
 };
 

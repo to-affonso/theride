@@ -6,11 +6,13 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useBleStore } from '@/stores/bleStore';
 import { useAthleteStore } from '@/stores/athleteStore';
 import { useAntStore } from '@/stores/antStore';
+import type { PowerSmoothingSeconds } from '@/types';
 
 import { createClient } from '@/lib/supabase/client';
 import { Icons } from '@/components/icons';
 import { DeviceModal } from '@/components/DeviceModal';
 import Image from 'next/image';
+import type { Athlete } from '@/types';
 
 const ACCENT = '#D5FF00';
 
@@ -25,10 +27,10 @@ const IconLogout = ({ size = 16 }: { size?: number }) => (
 type NavItem = { label: string; href?: string; match: (pathname: string) => boolean };
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Início',        href: undefined,  match: () => false },
-  { label: 'Rotas',         href: '/route',   match: p => p === '/route' || p.startsWith('/route/') },
-  { label: 'Histórico',     href: '/history', match: p => p === '/history' || p.startsWith('/history/') },
-  { label: 'Configurações', href: '/pair',    match: p => p === '/pair' },
+  { label: 'Início',        href: undefined,    match: () => false },
+  { label: 'Rotas',         href: '/route',     match: p => p === '/route' || p.startsWith('/route/') },
+  { label: 'Histórico',     href: '/history',   match: p => p === '/history' || p.startsWith('/history/') },
+  { label: 'Configurações', href: '/settings',  match: p => p === '/settings' },
 ];
 
 export function TopBar() {
@@ -36,9 +38,12 @@ export function TopBar() {
   const router     = useRouter();
   const athlete    = useAthleteStore(s => s.athlete);
   const setAthlete = useAthleteStore(s => s.setAthlete);
-  const devices      = useBleStore(s => s.devices);
+  const devices              = useBleStore(s => s.devices);
+  const setSmoothingSeconds  = useBleStore(s => s.setSmoothingSeconds);
+  const setAutoLapKm         = useBleStore(s => s.setAutoLapKm);
   const antConnected = useAntStore(s => s.connected);
   const connectedCount = Object.values(devices).filter(d => d.connected).length + (antConnected ? 1 : 0);
+  const totalDevices   = Object.keys(devices).length + 1; // +1 for ANT+
 
   const [devModalOpen, setDevModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -49,9 +54,18 @@ export function TopBar() {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return;
       const { data } = await supabase.from('athletes').select('*').eq('user_id', user.id).single();
-      if (data) setAthlete(data);
+      if (data) {
+        const a = data as Athlete;
+        setAthlete(a);
+        // Seed in-memory preferences from the persisted athlete row so /live
+        // starts with the user's configured smoothing and auto-lap.
+        if (a.power_smoothing_seconds) {
+          setSmoothingSeconds(a.power_smoothing_seconds as PowerSmoothingSeconds);
+        }
+        setAutoLapKm(a.auto_lap_enabled ? Number(a.auto_lap_distance_km) : null);
+      }
     });
-  }, [setAthlete]);
+  }, [setAthlete, setSmoothingSeconds, setAutoLapKm]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -118,7 +132,7 @@ export function TopBar() {
             style={devModalOpen ? { borderColor: ACCENT, color: ACCENT } : undefined}
           >
             <Icons.Bluetooth size={14}/>
-            <span>{connectedCount}/4</span>
+            <span>{connectedCount}/{totalDevices}</span>
             <span className="chip-sub">BLE</span>
           </button>
 

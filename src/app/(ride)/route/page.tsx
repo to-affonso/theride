@@ -21,15 +21,6 @@ import { GpxThumbnail } from '@/components/route/GpxThumbnail';
 
 const ACCENT = '#D5FF00';
 
-// ── Static fallback routes ────────────────────────────────────────────────────
-const STATIC_ROUTES: Route[] = [
-  { id:'r1', name:'Estrada Real — Tiradentes', location:'Minas Gerais, BR',   distance_km:24.6, elevation_m:412, estimated_time_min:58,  difficulty:3, type:'Hills',     created_at:'' },
-  { id:'r2', name:'Volta ao Lago Negro',        location:'Bariloche, AR',      distance_km:18.2, elevation_m:188, estimated_time_min:42,  difficulty:2, type:'Recovery',  created_at:'' },
-  { id:'r3', name:'Subida do Stelvio (parcial)',location:'Lombardia, IT',      distance_km:11.4, elevation_m:864, estimated_time_min:72,  difficulty:5, type:'Climb',     created_at:'' },
-  { id:'r4', name:'Costa do Sol — Búzios',      location:'Rio de Janeiro, BR', distance_km:32.0, elevation_m:240, estimated_time_min:65,  difficulty:2, type:'Endurance', created_at:'' },
-  { id:'r5', name:'Pyrenees Sprint',            location:'Catalunya, ES',      distance_km:8.4,  elevation_m:120, estimated_time_min:22,  difficulty:3, type:'Sprint',    created_at:'' },
-];
-
 function fmtTime(min: number) {
   if (min < 60) return `~${min} min`;
   const h = Math.floor(min / 60), m = min % 60;
@@ -182,6 +173,7 @@ export default function RoutePage() {
   const athlete = useAthleteStore(s => s.athlete);
 
   const [active, setActive] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(true);
   const [dragging, setDragging] = useState(false);
   const [gpxError, setGpxError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -194,12 +186,13 @@ export default function RoutePage() {
     const localRoutes = loadLocalRoutes();
     const supabase = createClient();
     supabase.from('routes').select('*').order('created_at').then(({ data }) => {
-      const dbRoutes: Route[] = (data && data.length > 0) ? data : STATIC_ROUTES;
+      const dbRoutes: Route[] = data ?? [];
       const dbIds = new Set(dbRoutes.map(r => r.id));
       const onlyLocal = localRoutes.filter(r => !dbIds.has(r.id));
       const merged = [...onlyLocal, ...dbRoutes];
       setRoutes(merged);
       setActive(merged[0]?.id ?? '');
+      setLoading(false);
     });
   }, [setRoutes]);
 
@@ -209,7 +202,7 @@ export default function RoutePage() {
     loadRouteStats(athlete.id).then(setStats);
   }, [athlete?.id]);
 
-  const displayRoutes = routes.length > 0 ? routes : STATIC_ROUTES;
+  const displayRoutes = routes;
 
   // Apply search/filter/sort. Memoised so 100 routes filter in < 1 ms.
   const visibleRoutes = useMemo(
@@ -409,7 +402,22 @@ export default function RoutePage() {
 
           {/* Route list */}
           <div className="route-list">
-            {visibleRoutes.length === 0 && (
+            {loading && (
+              <>
+                <div className="route-skeleton"/>
+                <div className="route-skeleton"/>
+                <div className="route-skeleton"/>
+                <div className="route-skeleton"/>
+              </>
+            )}
+
+            {!loading && displayRoutes.length === 0 && (
+              <div className="route-empty">
+                <span>Nenhuma rota disponível ainda. Importe um arquivo .gpx para começar.</span>
+              </div>
+            )}
+
+            {!loading && displayRoutes.length > 0 && visibleRoutes.length === 0 && (
               <div className="route-empty">
                 <span>Nenhuma rota encontrada com esses filtros.</span>
                 <button
@@ -422,7 +430,7 @@ export default function RoutePage() {
               </div>
             )}
 
-            {visibleRoutes.map((rt, i) => {
+            {!loading && visibleRoutes.map((rt, i) => {
               const badge = routeBadge(rt);
               const st    = stats[rt.id];
               return (
@@ -493,7 +501,15 @@ export default function RoutePage() {
 
         {/* ── Right column ───────────────────────────────────────────────── */}
         <div className="route-right">
-          {r && (
+          {loading && (
+            <div className="route-detail">
+              <div className="route-skeleton" style={{ height: 60 }}/>
+              <div className="route-skeleton" style={{ height: 220 }}/>
+              <div className="route-skeleton" style={{ height: 120 }}/>
+              <div className="route-skeleton" style={{ height: 80 }}/>
+            </div>
+          )}
+          {!loading && r && (
             <div className="route-detail">
               <div>
                 <div style={{ fontFamily: "'JetBrains Mono'", fontSize: 10.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--fg-3)', marginBottom: 8 }}>
@@ -571,10 +587,10 @@ export default function RoutePage() {
           )}
 
           <div className="footer-actions">
-            <button className="btn ghost" onClick={() => router.push('/pair')}>
+            <button className="btn ghost" onClick={() => router.push('/settings')}>
               <Icons.Settings size={14}/> Dispositivos
             </button>
-            <button className="btn primary lg" onClick={handleStart}>
+            <button className="btn primary lg" onClick={handleStart} disabled={!r}>
               Iniciar <Icons.Play size={14} c="#0A0A0A"/>
             </button>
           </div>

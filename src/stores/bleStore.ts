@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import { BleState, DeviceType, Lap } from '@/types';
+import { BleState, DeviceType, Lap, PowerSmoothingSeconds } from '@/types';
 
 const INITIAL_DEVICE = { device: null, connected: false, connecting: false, name: '' };
 
@@ -43,6 +43,20 @@ const DEVICE_CONFIG = {
       ],
     },
   },
+  speed: {
+    label: 'Sensor de Velocidade',
+    desc: 'CSC · velocidade (calculada a partir das revoluções da roda)',
+    protocols: ['BLE', 'CSC'],
+    request: {
+      filters: [
+        { services: ['00001816-0000-1000-8000-00805f9b34fb'] },
+      ],
+      optionalServices: [
+        '00001816-0000-1000-8000-00805f9b34fb',
+        BATTERY_SVC,
+      ],
+    },
+  },
   hr: {
     label: 'Monitor Cardíaco',
     desc: 'Heart Rate Service · frequência cardíaca',
@@ -72,8 +86,8 @@ interface BleStore extends BleState {
   setTargetPower: (watts: number) => Promise<void>;
   setGrade: (grade: number) => Promise<void>;
   // ── Sprint 4 ────────────────────────────────────────────────────────────────
-  /** Switch the on-screen smoothing window. */
-  setSmoothing: (v: '1s' | '3s') => void;
+  /** Switch the on-screen smoothing window (seconds). */
+  setSmoothingSeconds: (s: PowerSmoothingSeconds) => void;
   /** Configure auto-lap distance. Pass `null` to disable. */
   setAutoLapKm: (km: number | null) => void;
   /** Close the current lap and start a new one. */
@@ -122,17 +136,22 @@ export const useBleStore = create<BleStore>((set, get) => {
   let sessionInterval: ReturnType<typeof setInterval> | null = null;
   let cpPrev:  { rev: number | null; time: number | null } = { rev: null, time: null };
   let cscPrev: { rev: number | null; time: number | null } = { rev: null, time: null };
+  // Separate prev state for the dedicated speed sensor (wheel-rev side of CSC).
+  let speedPrev: { rev: number | null; time: number | null } = { rev: null, time: null };
+  // Default wheel circumference: 700x25c ≈ 2.105 m. Plenty close for indoor cadence-sourced speed.
+  const WHEEL_CIRCUMFERENCE_M = 2.105;
   // FTMS Control Point characteristic for ERG mode
   let ftmsControlPoint: BluetoothRemoteGATTCharacteristic | null = null;
 
-  // ── 3-second rolling buffers (closure state — kept off the store to avoid
+  // ── Rolling buffers (closure state — kept off the store to avoid
   //    re-renders on every sample). Each entry: [timestamp_ms, value].
-  const power3sBuf: [number, number][] = [];
-  const hr3sBuf:    [number, number][] = [];
+  //    The window length is driven by `smoothingSeconds` on the store.
+  const powerSmoothBuf: [number, number][] = [];
+  const hrSmoothBuf:    [number, number][] = [];
 
-  /** Drop entries older than 3 s and return the average. */
-  function rolling3sAvg(buf: [number, number][], now: number): number | null {
-    while (buf.length > 0 && now - buf[0][0] > 3000) buf.shift();
+  /** Drop entries older than `windowMs` and return the average. */
+  function rollingAvg(buf: [number, number][], now: number, windowMs: number): number | null {
+    while (buf.length > 0 && now - buf[0][0] > windowMs) buf.shift();
     if (buf.length === 0) return null;
     let sum = 0;
     for (const [, v] of buf) sum += v;
@@ -172,11 +191,11 @@ export const useBleStore = create<BleStore>((set, get) => {
   ) {
     const now = Date.now();
 
-    // Update 3s rolling buffers outside React state for cheap recompute.
+    // Update rolling buffers outside React state for cheap recompute.
     if (metric === 'power') {
-      power3sBuf.push([now, Math.max(0, value)]);
+      powerSmoothBuf.push([now, Math.max(0, value)]);
     } else if (metric === 'hr' && value > 0) {
-      hr3sBuf.push([now, value]);
+      hrSmoothBuf.push([now, value]);
     }
 
     set(s => {
@@ -187,9 +206,10 @@ export const useBleStore = create<BleStore>((set, get) => {
       if (metric === 'hr')      { next.hr      = value; next.sources = { ...s.sources, hr:      source ?? null }; }
       if (metric === 'speed')   { next.speed   = value; }
 
-      // Recompute smoothed values from the rolling buffers.
-      next.power3s = rolling3sAvg(power3sBuf, now);
-      next.hr3s    = rolling3sAvg(hr3sBuf,    now);
+      // Recompute smoothed values from the rolling buffers using the configured window.
+      const windowMs = s.smoothingSeconds * 1000;
+      next.powerSmoothed = rollingAvg(powerSmoothBuf, now, windowMs);
+      next.hrSmoothed    = rollingAvg(hrSmoothBuf,    now, windowMs);
 
       if (s.sessionStart && !s.sessionPaused) {
         if (metric === 'power' && value > 0) {
@@ -283,6 +303,30 @@ export const useBleStore = create<BleStore>((set, get) => {
     }
   }
 
+  /**
+   * Parse CSC for the SPEED side (wheel revolutions). Computes km/h from
+   * delta-rev / delta-time using a fixed wheel circumference.
+   */
+  function parseSpeedCSC(event: Event) {
+    const d     = (event.target as BluetoothRemoteGATTCharacteristic).value!;
+    const flags = d.getUint8(0);
+    if (!(flags & 0x01)) return; // no wheel-rev data in this packet
+    if (d.byteLength < 7) return;
+    const rev  = d.getUint32(1, true);
+    const time = d.getUint16(5, true); // 1/1024 s
+    if (speedPrev.rev !== null && speedPrev.time !== null) {
+      const dRev  = (rev  - speedPrev.rev  + 0x100000000) % 0x100000000;
+      const dTime = (time - speedPrev.time + 65536) % 65536;
+      if (dTime > 0) {
+        const seconds = dTime / 1024;
+        const mPerS   = (dRev * WHEEL_CIRCUMFERENCE_M) / seconds;
+        const kmh     = mPerS * 3.6;
+        if (kmh >= 0 && kmh < 120) updateMetricImpl('speed', kmh, 'speed');
+      }
+    }
+    speedPrev = { rev, time };
+  }
+
   function parseHR(event: Event) {
     const d     = (event.target as BluetoothRemoteGATTCharacteristic).value!;
     const flags = d.getUint8(0);
@@ -336,6 +380,16 @@ export const useBleStore = create<BleStore>((set, get) => {
         addLogImpl(`${name}: cadência via Cycling Power.`, 'success');
       } catch { addLogImpl(`${name}: cadência não reconhecida.`, 'error'); }
     }
+  }
+
+  async function subscribeSpeed(server: BluetoothRemoteGATTServer, name: string) {
+    try {
+      const svc  = await server.getPrimaryService('00001816-0000-1000-8000-00805f9b34fb');
+      const char = await svc.getCharacteristic('00002a5b-0000-1000-8000-00805f9b34fb');
+      await char.startNotifications();
+      char.addEventListener('characteristicvaluechanged', parseSpeedCSC);
+      addLogImpl(`${name}: CSC velocidade ativo.`, 'success');
+    } catch { addLogImpl(`${name}: serviço CSC velocidade não encontrado.`, 'error'); }
   }
 
   async function subscribeHR(server: BluetoothRemoteGATTServer, name: string) {
@@ -440,6 +494,7 @@ export const useBleStore = create<BleStore>((set, get) => {
     devices: {
       trainer: { ...INITIAL_DEVICE },
       cadence: { ...INITIAL_DEVICE },
+      speed:   { ...INITIAL_DEVICE },
       hr:      { ...INITIAL_DEVICE },
     },
     power: null, cadence: null, hr: null, speed: null,
@@ -458,12 +513,12 @@ export const useBleStore = create<BleStore>((set, get) => {
     log: [],
     deviceConfig: DEVICE_CONFIG,
 
-    battery: { trainer: null, cadence: null, hr: null },
+    battery: { trainer: null, cadence: null, speed: null, hr: null },
 
     // ── Sprint 4 ──
-    power3s:   null,
-    hr3s:      null,
-    smoothing: '3s',
+    powerSmoothed: null,
+    hrSmoothed:    null,
+    smoothingSeconds: 3,
     laps:      [],
     autoLapKm: null,
     disconnectAlert: null,
@@ -473,7 +528,7 @@ export const useBleStore = create<BleStore>((set, get) => {
     updateMetric: updateMetricImpl,
     setFtp:    (ftp)    => set({ ftp }),
     setWeight: (weight) => set({ weight }),
-    setSmoothing:  (v)  => set({ smoothing: v }),
+    setSmoothingSeconds: (s) => set({ smoothingSeconds: s }),
     setAutoLapKm:  (km) => set({ autoLapKm: km }),
     addLap:        (kind = 'manual') => addLapImpl(kind),
     dismissDisconnect: () => set({ disconnectAlert: null }),
@@ -504,6 +559,7 @@ export const useBleStore = create<BleStore>((set, get) => {
           const server = await dev.gatt!.connect();
           if (entry.type === 'trainer') await subscribeTrainer(server, entry.name);
           if (entry.type === 'cadence') await subscribeCadence(server, entry.name);
+          if (entry.type === 'speed')   await subscribeSpeed(server, entry.name);
           if (entry.type === 'hr')      await subscribeHR(server, entry.name);
           subscribeBattery(server, entry.type, entry.name);
           set(prev => ({
@@ -534,6 +590,7 @@ export const useBleStore = create<BleStore>((set, get) => {
         const server = await device.gatt!.connect();
         if (type === 'trainer') await subscribeTrainer(server, d.name || device.name || 'Trainer');
         if (type === 'cadence') await subscribeCadence(server, d.name || device.name || 'Cadência');
+        if (type === 'speed')   await subscribeSpeed(server, d.name || device.name || 'Velocidade');
         if (type === 'hr')      await subscribeHR(server, d.name || device.name || 'HR');
         set(prev => ({
           devices:    { ...prev.devices, [type]: { device, connected: true, connecting: false, name: d.name || device.name || '' } },
@@ -552,8 +609,8 @@ export const useBleStore = create<BleStore>((set, get) => {
 
     resetSession: () => {
       if (sessionInterval) { clearInterval(sessionInterval); sessionInterval = null; }
-      power3sBuf.length = 0;
-      hr3sBuf.length    = 0;
+      powerSmoothBuf.length = 0;
+      hrSmoothBuf.length    = 0;
       resetLapBaseline(0, 0);
       set({
         sessionStart: null, elapsed: 0, sessionPaused: false,
@@ -562,7 +619,7 @@ export const useBleStore = create<BleStore>((set, get) => {
         calories: 0, distanceKm: 0,
         sessionPowerSeries: [], sessionHrSeries: [],
         sessionCadenceSeries: [], sessionSpeedSeries: [],
-        power3s: null, hr3s: null,
+        powerSmoothed: null, hrSmoothed: null,
         laps: [], disconnectAlert: null,
       });
     },
@@ -646,6 +703,7 @@ export const useBleStore = create<BleStore>((set, get) => {
               if (timedOut) break;
               if (type === 'trainer') await subscribeTrainer(server, devName);
               if (type === 'cadence') await subscribeCadence(server, devName);
+              if (type === 'speed')   await subscribeSpeed(server, devName);
               if (type === 'hr')      await subscribeHR(server, devName);
               reconnected = true;
               clearTimeout(timer);
@@ -675,7 +733,7 @@ export const useBleStore = create<BleStore>((set, get) => {
               if (prev.sources.power   === type) { next.power   = null; next.sources = { ...next.sources, power:   null }; }
               if (prev.sources.cadence === type) { next.cadence = null; next.sources = { ...next.sources, cadence: null }; }
               if (prev.sources.hr      === type) { next.hr      = null; next.sources = { ...next.sources, hr:      null }; }
-              if (type === 'trainer')             { next.speed   = null; }
+              if (type === 'trainer' || type === 'speed') { next.speed = null; }
               // Keep the popup open with `reconnecting:false` so the user can retry manually.
               next.disconnectAlert = { type, name: devName, reconnecting: false };
               return next;
@@ -691,6 +749,7 @@ export const useBleStore = create<BleStore>((set, get) => {
 
         if (type === 'trainer') await subscribeTrainer(server, devName);
         if (type === 'cadence') await subscribeCadence(server, devName);
+        if (type === 'speed')   await subscribeSpeed(server, devName);
         if (type === 'hr')      await subscribeHR(server, devName);
 
         // Best-effort battery read — silently skipped if unsupported.
@@ -721,6 +780,7 @@ export const useBleStore = create<BleStore>((set, get) => {
         if (prev.sources.cadence === type) { next.cadence = null; next.sources = { ...next.sources, cadence: null }; }
         if (prev.sources.hr      === type) { next.hr      = null; next.sources = { ...next.sources, hr:      null }; }
         if (type === 'trainer')             { next.speed   = null; next.ergEnabled = false; }
+        if (type === 'speed')               { next.speed   = null; }
         return next;
       });
       addLogImpl(`${DEVICE_CONFIG[type].label} desconectado.`, 'warn');

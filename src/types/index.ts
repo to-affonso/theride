@@ -1,6 +1,8 @@
 export * from './ble';
 export type { GpxPoint } from '@/lib/gpx';
 
+export type PowerSmoothingSeconds = 1 | 3 | 5 | 10;
+
 export interface Athlete {
   id: string;
   user_id: string;
@@ -10,6 +12,14 @@ export interface Athlete {
   max_hr: number;
   bike: string;
   created_at: string;
+
+  // Migration 002 — Settings screen.
+  birth_date?: string | null;
+  power_smoothing_seconds: PowerSmoothingSeconds;
+  auto_lap_enabled: boolean;
+  auto_lap_distance_km: number;
+  /** Upper bounds of Z1..Z6 as fractions of max_hr (Z7 is implicit catch-all). Length 6. */
+  hr_zones: number[];
 }
 
 export interface Route {
@@ -59,7 +69,8 @@ export interface Session {
   // Distributions and curve (jsonb)
   best_power?: Partial<Record<'5s' | '30s' | '1min' | '5min' | '20min' | '60min', number>> | null;
   power_zone_seconds?: Partial<Record<'z1' | 'z2' | 'z3' | 'z4' | 'z5', number>> | null;
-  hr_zone_seconds?: Partial<Record<'z1' | 'z2' | 'z3' | 'z4' | 'z5', number>> | null;
+  /** Z6/Z7 added in migration 002 (HR uses Friel 7-zone model). Legacy rows may only have z1..z5. */
+  hr_zone_seconds?: Partial<Record<'z1' | 'z2' | 'z3' | 'z4' | 'z5' | 'z6' | 'z7', number>> | null;
 
   // Session-level
   notes?: string;
@@ -69,6 +80,8 @@ export interface Session {
     trainer: string | null;
     cadence: string | null;
     hr: string | null;
+    /** Optional CSC speed sensor (added with /settings refresh). Legacy rows omit. */
+    speed?: string | null;
   };
   created_at: string;
 
