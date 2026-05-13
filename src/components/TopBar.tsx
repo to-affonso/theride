@@ -10,6 +10,7 @@ import { useAntStore } from '@/stores/antStore';
 import { createClient } from '@/lib/supabase/client';
 import { Icons } from '@/components/icons';
 import { DeviceModal } from '@/components/DeviceModal';
+import Image from 'next/image';
 
 const ACCENT = '#D5FF00';
 
@@ -74,12 +75,15 @@ export function TopBar() {
     <>
       <header className="chrome">
         <div className="chrome-left">
-          <div className="brand">
-            <div className="brand-mark">
-              <Icons.Symbol />
-            </div>
-            <span className="brand-name">The <em>Ride</em></span>
-          </div>
+          <Link href="/route" className="brand" aria-label="The Ride">
+            <Image
+              src="/images/theRideLogo.svg"
+              alt="The Ride"
+              width={46}
+              height={32}
+              priority
+            />
+          </Link>
         </div>
 
         <nav className="chrome-nav" aria-label="Navegação principal">

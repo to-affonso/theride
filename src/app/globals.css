@@ -40,7 +40,8 @@ button { font-family: inherit; }
 .chrome {
   position: absolute; inset: 0 0 auto 0; height: 64px;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 28px; z-index: 1050; background: transparent;
+  padding: 0 24px; z-index: 1050; background: transparent;
+  border-bottom: 1px solid #333;
   /* z-index 1050 puts chrome (and its absolute children like .pop-anchor)
      above Leaflet's internal stacking (which reaches z:1000 on controls). */
 }
