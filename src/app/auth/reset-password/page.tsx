@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { ElevationBg } from '@/components/auth/ElevationBg';
+import { AuthSplitLayout } from '@/components/auth/AuthSplitLayout';
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -39,14 +39,7 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="auth-stage">
-      <ElevationBg/>
-
-      <div className="auth-card">
-        <div className="brand" style={{ marginBottom: 28 }}>
-          <span className="brand-name">The <em>Ride</em></span>
-        </div>
-
+    <AuthSplitLayout>
         <h1>Nova senha</h1>
         <p className="sub">Escolha uma senha forte para acessar a sua conta.</p>
 
@@ -91,7 +84,6 @@ export default function ResetPasswordPage() {
             Voltar para o login
           </Link>
         </p>
-      </div>
-    </div>
+    </AuthSplitLayout>
   );
 }

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { ElevationBg } from '@/components/auth/ElevationBg';
+import { AuthSplitLayout } from '@/components/auth/AuthSplitLayout';
 
 type Mode = 'login' | 'reset';
 
@@ -52,18 +52,11 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="auth-stage">
-      <ElevationBg/>
-
-      <div className="auth-card">
-        <div className="brand" style={{ marginBottom: 28 }}>
-          <span className="brand-name">The <em>Ride</em></span>
-        </div>
-
+    <AuthSplitLayout>
         {mode === 'login' ? (
           <>
-            <h1>Bem-vindo de volta.</h1>
-            <p className="sub">Entre para continuar pedalando.</p>
+            <h1>Bem-vindo.</h1>
+            <p className="sub">Para treinar, faça o seu login abaixo.</p>
 
             <form onSubmit={handleLogin}>
               {error && <div className="auth-error">{error}</div>}
@@ -155,7 +148,6 @@ export default function LoginPage() {
             </form>
           </>
         )}
-      </div>
-    </div>
+    </AuthSplitLayout>
   );
 }

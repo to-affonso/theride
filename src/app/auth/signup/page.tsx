@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { AuthSplitLayout } from '@/components/auth/AuthSplitLayout';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -36,12 +37,7 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="auth-stage">
-      <div className="auth-card">
-        <div className="brand" style={{ marginBottom: 28 }}>
-          <span className="brand-name">The <em>Ride</em></span>
-        </div>
-
+    <AuthSplitLayout>
         <h1>Crie sua conta.</h1>
         <p className="sub">Comece a pedalar agora.</p>
 
@@ -102,7 +98,6 @@ export default function SignupPage() {
             Entrar
           </Link>
         </p>
-      </div>
-    </div>
+    </AuthSplitLayout>
   );
 }
