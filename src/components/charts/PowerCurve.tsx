@@ -17,13 +17,13 @@ import { useMemo } from 'react';
 import { scaleLog, scaleLinear } from '@visx/scale';
 import type { BestPower, MmpKey } from '@/lib/metrics';
 import { SERIES_COLORS, FONT, MARGIN } from './theme';
+import { useContainerWidth } from './useContainerWidth';
 
 interface PowerCurveProps {
   current:    BestPower;
   historical: BestPower;
   prs:        MmpKey[];
   height?:    number;
-  width?:     number;
 }
 
 /** Ordered windows: label, seconds */
@@ -43,8 +43,8 @@ export function PowerCurve({
   historical,
   prs,
   height = 200,
-  width  = 600,
 }: PowerCurveProps) {
+  const { ref, width } = useContainerWidth<HTMLDivElement>(600);
   const margin = { ...MARGIN, left: 48, bottom: 32, top: 12, right: 16 };
   const innerW = width  - margin.left - margin.right;
   const innerH = height - margin.top  - margin.bottom;
@@ -93,7 +93,8 @@ export function PowerCurve({
   }
 
   return (
-    <svg width="100%" viewBox={`0 0 ${width} ${height}`} style={{ display: 'block', overflow: 'visible' }}>
+    <div ref={ref} style={{ width: '100%' }}>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block', overflow: 'visible' }}>
       <g transform={`translate(${margin.left},${margin.top})`}>
 
         {/* Grid lines */}
@@ -215,5 +216,6 @@ export function PowerCurve({
 
       </g>
     </svg>
+    </div>
   );
 }

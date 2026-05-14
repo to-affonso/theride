@@ -17,13 +17,13 @@
 import { useMemo } from 'react';
 import { scaleLinear } from '@visx/scale';
 import { SERIES_COLORS, FONT } from './theme';
+import { useContainerWidth } from './useContainerWidth';
 
 interface ScatterCardProps {
   /** Power values (W) — one per second. */
   powerSeries: number[];
   /** Heart rate values (bpm) — one per second. */
   hrSeries:    number[];
-  width?:      number;
   height?:     number;
 }
 
@@ -37,9 +37,9 @@ function sampleDown(arr: { x: number; y: number; half: 0 | 1 }[], maxN: number) 
 export function ScatterCard({
   powerSeries,
   hrSeries,
-  width  = 360,
   height = 200,
 }: ScatterCardProps) {
+  const { ref, width } = useContainerWidth<HTMLDivElement>(600);
   const margin = { top: 12, right: 12, bottom: 36, left: 44 };
   const innerW = width  - margin.left  - margin.right;
   const innerH = height - margin.top   - margin.bottom;
@@ -87,7 +87,8 @@ export function ScatterCard({
   const yTicks = yScale.ticks(4);
 
   return (
-    <svg width="100%" viewBox={`0 0 ${width} ${height}`} style={{ display: 'block', overflow: 'visible' }}>
+    <div ref={ref} style={{ width: '100%' }}>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block', overflow: 'visible' }}>
       <g transform={`translate(${margin.left},${margin.top})`}>
 
         {/* Grid */}
@@ -148,5 +149,6 @@ export function ScatterCard({
 
       </g>
     </svg>
+    </div>
   );
 }

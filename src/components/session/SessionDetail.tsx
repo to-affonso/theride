@@ -90,18 +90,26 @@ export function SessionDetail({
   const tssClass   = useMemo(() => classifyTss(session.tss), [session.tss]);
 
   // ── Zone displays ─────────────────────────────────────────────────────
-  const totalZoneSec = elapsed || 1;
-  const powerZones = useMemo(() => POWER_ZONES.map(z => ({
-    ...z,
-    sec: session.power_zone_seconds?.[z.id] ?? 0,
-    pct: Math.round((session.power_zone_seconds?.[z.id] ?? 0) / totalZoneSec * 100),
-  })), [session.power_zone_seconds, totalZoneSec]);
+  // Percentages are normalized against the sum of zone samples (not elapsed
+  // duration) because the source series may not be exactly 1Hz — guarantees
+  // the bars sum to 100%.
+  const powerZones = useMemo(() => {
+    const total = POWER_ZONES.reduce((s, z) => s + (session.power_zone_seconds?.[z.id] ?? 0), 0) || 1;
+    const scale = elapsed > 0 ? elapsed / total : 0;
+    return POWER_ZONES.map(z => {
+      const raw = session.power_zone_seconds?.[z.id] ?? 0;
+      return { ...z, sec: Math.round(raw * scale), pct: Math.round(raw / total * 100) };
+    });
+  }, [session.power_zone_seconds, elapsed]);
 
-  const hrZones = useMemo(() => HR_ZONES.map(z => ({
-    ...z,
-    sec: session.hr_zone_seconds?.[z.id] ?? 0,
-    pct: Math.round((session.hr_zone_seconds?.[z.id] ?? 0) / totalZoneSec * 100),
-  })), [session.hr_zone_seconds, totalZoneSec]);
+  const hrZones = useMemo(() => {
+    const total = HR_ZONES.reduce((s, z) => s + (session.hr_zone_seconds?.[z.id] ?? 0), 0) || 1;
+    const scale = elapsed > 0 ? elapsed / total : 0;
+    return HR_ZONES.map(z => {
+      const raw = session.hr_zone_seconds?.[z.id] ?? 0;
+      return { ...z, sec: Math.round(raw * scale), pct: Math.round(raw / total * 100) };
+    });
+  }, [session.hr_zone_seconds, elapsed]);
 
   const hasPowerZones = powerZones.some(z => z.sec > 0);
   const hasHrZones    = hrZones.some(z => z.sec > 0);
@@ -214,7 +222,14 @@ export function SessionDetail({
                 )}
               </>
             }
-            highlight={highlight}
+            highlight={highlight && (
+              prs.length > 0 ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Icons.Trophy size={14}/>
+                  {highlight}
+                </span>
+              ) : highlight
+            )}
             highlightVariant={highlightVariant}
             spectrumValue={session.tss}
             spectrumBands={TSS_BANDS}
@@ -329,7 +344,7 @@ export function SessionDetail({
                       <div key={z.id} className="zone-row">
                         <div className="name"><b style={{ color: 'var(--fg)' }}>{z.label}</b> {z.name}</div>
                         <div className="zone-bar">
-                          <i style={{ width: `${Math.min(100, z.pct * 1.6)}%`, background: z.color }}/>
+                          <i style={{ width: `${z.pct}%`, background: z.color }}/>
                         </div>
                         <div className="pct">{z.pct}%</div>
                       </div>
@@ -453,17 +468,14 @@ export function SessionDetail({
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
               {(['trainer', 'cadence', 'hr'] as const).map(id => (
                 <div key={id} style={{
-                  display: 'grid', gridTemplateColumns: '80px 1fr auto', gap: 10,
+                  display: 'grid', gridTemplateColumns: '80px 1fr', gap: 10,
                   padding: '10px 14px', background: 'var(--bg)', border: '1px solid var(--line-soft)',
                   borderRadius: 8, fontSize: 12, alignItems: 'center', flex: '1 1 220px',
                 }}>
                   <div style={{ fontFamily: "'JetBrains Mono'", fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fg-3)' }}>
                     {id === 'trainer' ? 'Smart Trainer' : id === 'cadence' ? 'Cadência' : 'Freq. Cardíaca'}
                   </div>
-                  <div style={{ color: 'var(--fg-2)' }}>{session.devices[id] || 'Não conectado'}</div>
-                  <div style={{ fontFamily: "'JetBrains Mono'", fontSize: 11, color: session.devices[id] ? 'var(--ok)' : 'var(--fg-3)' }}>
-                    {session.devices[id] ? 'conectado' : '—'}
-                  </div>
+                  <div style={{ color: 'var(--fg-2)' }}>{session.devices[id] || '—'}</div>
                 </div>
               ))}
             </div>

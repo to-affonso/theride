@@ -128,8 +128,8 @@ export function buildHighlight(
     const top = prs[0];
     const delta = prDeltas[top];
     const label = labelOfMmp(top);
-    if (delta !== undefined && delta > 0) return `⭐ Novo PR de ${label} (+${delta}W)`;
-    return `⭐ Novo PR de ${label}`;
+    if (delta !== undefined && delta > 0) return `Novo PR de ${label} (+${delta}W)`;
+    return `Novo PR de ${label}`;
   }
   if (comparison.hasComparison && comparison.npDelta !== undefined) {
     if (comparison.npDelta > 4)       return `↑ ${Math.round(comparison.npDelta)}W melhor que sua última tentativa`;

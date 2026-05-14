@@ -27,7 +27,7 @@ interface HeroStatProps {
   classification?: string;         // "Treino moderado-alto"
   recovery?: string;               // "Recuperação 36–48h"
   secondary?: ReactNode;           // children with secondary metrics
-  highlight?: string | null;       // "↑ 4W melhor que sua última tentativa"
+  highlight?: ReactNode;           // "↑ 4W melhor que sua última tentativa" — or rich content (icon + text)
   highlightVariant?: 'positive' | 'neutral' | 'down';
   /** Numeric value used to position the marker on the spectrum bar. */
   spectrumValue?: number;
