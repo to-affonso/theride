@@ -27,8 +27,11 @@ interface HeroStatProps {
   classification?: string;         // "Treino moderado-alto"
   recovery?: string;               // "Recuperação 36–48h"
   secondary?: ReactNode;           // children with secondary metrics
-  highlight?: ReactNode;           // "↑ 4W melhor que sua última tentativa" — or rich content (icon + text)
+  highlight?: ReactNode;           // "↑ 4W melhor que sua última tentativa" — small chip
   highlightVariant?: 'positive' | 'neutral' | 'down';
+  /** Prominent banner shown across the full width of the card. Use for high-impact
+   *  signals (real PRs) where the small chip understates the moment. */
+  prominentBadge?: ReactNode;
   /** Numeric value used to position the marker on the spectrum bar. */
   spectrumValue?: number;
   /** Bands shown on the spectrum bar (left to right). */
@@ -45,6 +48,7 @@ export function HeroStat({
   secondary,
   highlight,
   highlightVariant = 'positive',
+  prominentBadge,
   spectrumValue,
   spectrumBands,
   spectrumLabel = 'Escala',
@@ -63,7 +67,7 @@ export function HeroStat({
           {recovery && <div className="hero-stat-recovery">{recovery}</div>}
           {secondary && <div className="hero-stat-secondary">{secondary}</div>}
         </div>
-        {highlight && (
+        {highlight && !prominentBadge && (
           <div className="hero-stat-right">
             <div className={`hero-stat-highlight ${highlightVariant === 'positive' ? '' : highlightVariant}`}>
               {highlight}
@@ -71,6 +75,10 @@ export function HeroStat({
           </div>
         )}
       </div>
+
+      {prominentBadge && (
+        <div className="hero-stat-banner">{prominentBadge}</div>
+      )}
 
       {showSpectrum && (
         <SpectrumBar value={spectrumValue!} bands={spectrumBands!} label={spectrumLabel}/>

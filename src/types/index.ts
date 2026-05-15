@@ -86,5 +86,5 @@ export interface Session {
   created_at: string;
 
   // Joined route (when query includes it)
-  routes?: Pick<Route, 'id' | 'name' | 'location' | 'distance_km' | 'elevation_m'> | null;
+  routes?: Pick<Route, 'id' | 'name' | 'location' | 'distance_km' | 'elevation_m' | 'gpx_data'> | null;
 }

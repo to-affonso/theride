@@ -134,10 +134,13 @@ function saveKnownDevice(entry: KnownDevice) {
 
 export const useBleStore = create<BleStore>((set, get) => {
   let sessionInterval: ReturnType<typeof setInterval> | null = null;
-  let cpPrev:  { rev: number | null; time: number | null } = { rev: null, time: null };
-  let cscPrev: { rev: number | null; time: number | null } = { rev: null, time: null };
-  // Separate prev state for the dedicated speed sensor (wheel-rev side of CSC).
-  let speedPrev: { rev: number | null; time: number | null } = { rev: null, time: null };
+  // CSC-derived cadence/speed state tracks both the previous (rev, time)
+  // pair from the sensor AND the wall-clock time of the last notification.
+  // The wall-clock arm catches BLE dropouts where the modulo math can't
+  // tell a 5 s coast from a stale sample.
+  let cpPrev:    { rev: number | null; time: number | null; wallTime: number } = { rev: null, time: null, wallTime: 0 };
+  let cscPrev:   { rev: number | null; time: number | null; wallTime: number } = { rev: null, time: null, wallTime: 0 };
+  let speedPrev: { rev: number | null; time: number | null }                    = { rev: null, time: null };
   // Default wheel circumference: 700x25c ≈ 2.105 m. Plenty close for indoor cadence-sourced speed.
   const WHEEL_CIRCUMFERENCE_M = 2.105;
   // FTMS Control Point characteristic for ERG mode
@@ -146,8 +149,14 @@ export const useBleStore = create<BleStore>((set, get) => {
   // ── Rolling buffers (closure state — kept off the store to avoid
   //    re-renders on every sample). Each entry: [timestamp_ms, value].
   //    The window length is driven by `smoothingSeconds` on the store.
-  const powerSmoothBuf: [number, number][] = [];
-  const hrSmoothBuf:    [number, number][] = [];
+  const powerSmoothBuf:   [number, number][] = [];
+  const hrSmoothBuf:      [number, number][] = [];
+  const cadenceSmoothBuf: [number, number][] = [];
+
+  // Last wall-clock time the cadence pipeline emitted a value (any source).
+  // Used by the staleness watchdog in `tickSession` to force `cadence = 0`
+  // when no notification has arrived for >3 s.
+  let lastCadenceEmitAt = 0;
 
   /** Drop entries older than `windowMs` and return the average. */
   function rollingAvg(buf: [number, number][], now: number, windowMs: number): number | null {
@@ -191,11 +200,21 @@ export const useBleStore = create<BleStore>((set, get) => {
   ) {
     const now = Date.now();
 
+    // Cadence source priority: when a dedicated BLE CSC sensor is paired,
+    // ignore cadence coming from the trainer (FTMS/Cycling Power). Two
+    // sources writing the same state otherwise produce a chaotic mix.
+    if (metric === 'cadence' && source === 'trainer' && get().devices.cadence.connected) {
+      return;
+    }
+
     // Update rolling buffers outside React state for cheap recompute.
     if (metric === 'power') {
       powerSmoothBuf.push([now, Math.max(0, value)]);
     } else if (metric === 'hr' && value > 0) {
       hrSmoothBuf.push([now, value]);
+    } else if (metric === 'cadence' && value >= 0) {
+      cadenceSmoothBuf.push([now, value]);
+      lastCadenceEmitAt = now;
     }
 
     set(s => {
@@ -208,32 +227,9 @@ export const useBleStore = create<BleStore>((set, get) => {
 
       // Recompute smoothed values from the rolling buffers using the configured window.
       const windowMs = s.smoothingSeconds * 1000;
-      next.powerSmoothed = rollingAvg(powerSmoothBuf, now, windowMs);
-      next.hrSmoothed    = rollingAvg(hrSmoothBuf,    now, windowMs);
-
-      if (s.sessionStart && !s.sessionPaused) {
-        if (metric === 'power' && value > 0) {
-          next.powerSum     = s.powerSum + value;
-          next.powerSamples = s.powerSamples + 1;
-          next.calories     = s.calories + value / 3600 / 0.25;
-          const ps = [...s.sessionPowerSeries, value];
-          next.sessionPowerSeries = ps.length > 3600 ? ps.slice(-3600) : ps;
-        }
-        if (metric === 'hr' && value > 0) {
-          next.hrSum     = s.hrSum + value;
-          next.hrSamples = s.hrSamples + 1;
-          const hs = [...s.sessionHrSeries, value];
-          next.sessionHrSeries = hs.length > 3600 ? hs.slice(-3600) : hs;
-        }
-        if (metric === 'cadence' && value >= 0) {
-          const cs = [...s.sessionCadenceSeries, value];
-          next.sessionCadenceSeries = cs.length > 3600 ? cs.slice(-3600) : cs;
-        }
-        if (metric === 'speed' && value >= 0) {
-          const ss = [...s.sessionSpeedSeries, value];
-          next.sessionSpeedSeries = ss.length > 3600 ? ss.slice(-3600) : ss;
-        }
-      }
+      next.powerSmoothed   = rollingAvg(powerSmoothBuf,   now, windowMs);
+      next.hrSmoothed      = rollingAvg(hrSmoothBuf,      now, windowMs);
+      next.cadenceSmoothed = rollingAvg(cadenceSmoothBuf, now, windowMs);
 
       const ph = [...s.powerHistory.slice(1), next.power ?? 0];
       const hh = [...s.hrHistory.slice(1),    next.hr    ?? 0];
@@ -263,6 +259,24 @@ export const useBleStore = create<BleStore>((set, get) => {
     if (spd !== null) updateMetricImpl('speed',   spd,              'trainer');
   }
 
+  // CSC "phantom coast-end" thresholds. After a coast, the next crank
+  // event lands seconds after the previous one and `dTime / dRev` collapses
+  // into a single-revolution average that misrepresents the resumed
+  // pedaling rate (e.g. 1 rev / 5.5 s ≈ 11 rpm). We reject the first sample
+  // when either:
+  //   • the CSC clock advanced >2 s with ≤1 new revolution (true 30 rpm
+  //     pedaling is a fringe case; phantoms above this threshold dominate);
+  //   • wall-clock between notifications exceeds 2.5 s (BLE dropout, where
+  //     the modulo math on uint16 dTime can fold a long silence into a
+  //     misleadingly short value).
+  // Both arms force a re-baseline of `cpPrev` / `cscPrev` and wait for the
+  // next sample, which will carry a normal dTime.
+  function isPhantomCoastEnd(dRev: number, dTimeUnits: number, wallGap: number): boolean {
+    if (dRev > 1) return false;
+    const dTimeMs = (dTimeUnits * 1000) / 1024;
+    return dTimeMs > 2000 || wallGap > 2500;
+  }
+
   function parseCyclingPower(event: Event) {
     const d     = (event.target as BluetoothRemoteGATTCharacteristic).value!;
     const flags = d.getUint16(0, true);
@@ -271,15 +285,17 @@ export const useBleStore = create<BleStore>((set, get) => {
     if (flags & 0x0010 && d.byteLength >= 9) {
       const rev  = d.getUint16(4, true);
       const time = d.getUint16(6, true);
+      const now  = Date.now();
       if (cpPrev.rev !== null && cpPrev.time !== null) {
-        const dRev  = (rev  - cpPrev.rev  + 65536) % 65536;
-        const dTime = (time - cpPrev.time + 65536) % 65536;
-        if (dTime > 0) {
+        const dRev   = (rev  - cpPrev.rev  + 65536) % 65536;
+        const dTime  = (time - cpPrev.time + 65536) % 65536;
+        const wallGap = now - cpPrev.wallTime;
+        if (dTime > 0 && !isPhantomCoastEnd(dRev, dTime, wallGap)) {
           const cad = Math.round(dRev / dTime * 1024 * 60);
           if (cad >= 0 && cad < 300) updateMetricImpl('cadence', cad, 'trainer');
         }
       }
-      cpPrev = { rev, time };
+      cpPrev = { rev, time, wallTime: now };
     }
   }
 
@@ -291,15 +307,17 @@ export const useBleStore = create<BleStore>((set, get) => {
     if (flags & 0x02 && d.byteLength >= off + 4) {
       const rev  = d.getUint16(off,     true);
       const time = d.getUint16(off + 2, true);
+      const now  = Date.now();
       if (cscPrev.rev !== null && cscPrev.time !== null) {
-        const dRev  = (rev  - cscPrev.rev  + 65536) % 65536;
-        const dTime = (time - cscPrev.time + 65536) % 65536;
-        if (dTime > 0) {
+        const dRev    = (rev  - cscPrev.rev  + 65536) % 65536;
+        const dTime   = (time - cscPrev.time + 65536) % 65536;
+        const wallGap = now - cscPrev.wallTime;
+        if (dTime > 0 && !isPhantomCoastEnd(dRev, dTime, wallGap)) {
           const cad = Math.round(dRev / dTime * 1024 * 60);
           if (cad >= 0 && cad < 300) updateMetricImpl('cadence', cad, 'cadence');
         }
       }
-      cscPrev = { rev, time };
+      cscPrev = { rev, time, wallTime: now };
     }
   }
 
@@ -465,15 +483,79 @@ export const useBleStore = create<BleStore>((set, get) => {
     );
   }
 
-  /** Session tick — updates elapsed, distance, and triggers auto-lap. */
+  /**
+   * Session tick — runs every 1 second.
+   *
+   *   1. Updates `elapsed` and integrates `distanceKm` from speed.
+   *   2. Samples the current live metrics into the session series at a
+   *      strict 1 Hz cadence. Per-notification pushes are problematic
+   *      because BLE/ANT+ sensors emit at very different rates (FTMS 1 Hz,
+   *      CSC ~4 Hz, FE-C ~4 Hz); a per-notification series ends up
+   *      misaligned with power/HR and the 3600-element ring buffer loses
+   *      most of the session for high-rate sensors.
+   *   3. Applies the cadence staleness watchdog: when no cadence
+   *      notification has arrived for >3 s, force `cadence = 0`. Without
+   *      this the UI sticks at the last reported value during long coasts.
+   */
+  const SESSION_SERIES_CAP = 3600;
   function tickSession() {
+    const now = Date.now();
     set(s => {
-      const elapsed = s.sessionStart ? Math.floor((Date.now() - s.sessionStart!) / 1000) : 0;
-      if (s.sessionPaused || s.speed === null || s.speed <= 0) return { elapsed };
-      return { elapsed, distanceKm: s.distanceKm + s.speed / 3600 };
+      if (!s.sessionStart) return {};
+      const elapsed = Math.floor((now - s.sessionStart) / 1000);
+      if (s.sessionPaused) return { elapsed };
+
+      const next: Partial<BleState> = { elapsed };
+
+      // 1) Integrate distance from speed.
+      if (s.speed !== null && s.speed > 0) {
+        next.distanceKm = s.distanceKm + s.speed / 3600;
+      }
+
+      // 2) Cadence staleness — fold to 0 if no notification in 3 s.
+      const cadenceStale = lastCadenceEmitAt > 0 && now - lastCadenceEmitAt > 3000;
+      let cadenceLive = s.cadence;
+      if (cadenceStale && cadenceLive !== 0) {
+        cadenceLive = 0;
+        next.cadence = 0;
+        next.cadenceSmoothed = 0;
+        cadenceSmoothBuf.length = 0;
+      }
+
+      // 3) Sample live values into the session series at 1 Hz.
+      const powerSample   = s.power   != null && s.power   > 0 ? s.power   : 0;
+      const hrSample      = s.hr      != null && s.hr      > 0 ? s.hr      : 0;
+      const cadenceSample = cadenceLive != null && cadenceLive >= 0 ? cadenceLive : 0;
+      const speedSample   = s.speed   != null && s.speed   >= 0 ? s.speed   : 0;
+
+      // Append + ring-buffer trim (3600 samples = 1 h at 1 Hz).
+      function append(series: number[], v: number): number[] {
+        const out = [...series, v];
+        return out.length > SESSION_SERIES_CAP ? out.slice(-SESSION_SERIES_CAP) : out;
+      }
+      next.sessionPowerSeries   = append(s.sessionPowerSeries,   powerSample);
+      next.sessionHrSeries      = append(s.sessionHrSeries,      hrSample);
+      next.sessionCadenceSeries = append(s.sessionCadenceSeries, cadenceSample);
+      next.sessionSpeedSeries   = append(s.sessionSpeedSeries,   speedSample);
+
+      // Running sums for lap deltas + average display. These now advance at
+      // 1 Hz, so per-second averages are dimensionally clean (e.g. calories
+      // from `value / 3600 / 0.25` is now kcal/sec accumulated over actual
+      // seconds, not over notification count).
+      if (powerSample > 0) {
+        next.powerSum     = s.powerSum     + powerSample;
+        next.powerSamples = s.powerSamples + 1;
+        next.calories     = s.calories     + powerSample / 3600 / 0.25;
+      }
+      if (hrSample > 0) {
+        next.hrSum     = s.hrSum     + hrSample;
+        next.hrSamples = s.hrSamples + 1;
+      }
+
+      return next;
     });
 
-    // Auto-lap trigger.
+    // Auto-lap trigger (read after the state update).
     const s = get();
     if (s.autoLapKm != null && s.autoLapKm > 0) {
       const dist = s.distanceKm - lapBaseline.distanceKm;
@@ -516,8 +598,9 @@ export const useBleStore = create<BleStore>((set, get) => {
     battery: { trainer: null, cadence: null, speed: null, hr: null },
 
     // ── Sprint 4 ──
-    powerSmoothed: null,
-    hrSmoothed:    null,
+    powerSmoothed:   null,
+    hrSmoothed:      null,
+    cadenceSmoothed: null,
     smoothingSeconds: 3,
     laps:      [],
     autoLapKm: null,
@@ -609,8 +692,16 @@ export const useBleStore = create<BleStore>((set, get) => {
 
     resetSession: () => {
       if (sessionInterval) { clearInterval(sessionInterval); sessionInterval = null; }
-      powerSmoothBuf.length = 0;
-      hrSmoothBuf.length    = 0;
+      powerSmoothBuf.length   = 0;
+      hrSmoothBuf.length      = 0;
+      cadenceSmoothBuf.length = 0;
+      // Re-baseline CSC/CP/speed delta state so the first sample of the
+      // next session doesn't inherit stale (rev, time) from the previous
+      // session and produce a one-time bogus cadence/speed.
+      cpPrev    = { rev: null, time: null, wallTime: 0 };
+      cscPrev   = { rev: null, time: null, wallTime: 0 };
+      speedPrev = { rev: null, time: null };
+      lastCadenceEmitAt = 0;
       resetLapBaseline(0, 0);
       set({
         sessionStart: null, elapsed: 0, sessionPaused: false,
@@ -619,7 +710,7 @@ export const useBleStore = create<BleStore>((set, get) => {
         calories: 0, distanceKm: 0,
         sessionPowerSeries: [], sessionHrSeries: [],
         sessionCadenceSeries: [], sessionSpeedSeries: [],
-        powerSmoothed: null, hrSmoothed: null,
+        powerSmoothed: null, hrSmoothed: null, cadenceSmoothed: null,
         laps: [], disconnectAlert: null,
       });
     },

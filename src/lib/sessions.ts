@@ -32,7 +32,7 @@ export async function loadSession(id: string): Promise<Session | null> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('sessions')
-    .select('*, routes (id, name, location, distance_km, elevation_m)')
+    .select('*, routes (id, name, location, distance_km, elevation_m, gpx_data)')
     .eq('id', id)
     .single();
 

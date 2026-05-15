@@ -1,11 +1,15 @@
 'use client';
 
 /**
- * TimeSeriesChart — uPlot wrapper for session power + HR time series.
+ * TimeSeriesChart — uPlot wrapper for session power + HR + cadence + elevation.
  *
- * Renders power (lime, left axis) and heart rate (orange, right axis) on
- * a shared canvas. Power is smoothed with a 5-second rolling average to
- * reduce sensor noise while preserving ride shape.
+ * - Power: lime line, left axis (W).
+ * - HR: orange line, right axis (bpm).
+ * - Cadence: cyan line, no visible axis (auto-scaled to its own range).
+ * - Elevation: muted gray filled area at the back of the plot, no axis.
+ *
+ * Power is smoothed with a 5-second rolling average to reduce sensor noise.
+ * Cadence and elevation are smoothed similarly for visual stability.
  *
  * Rules:
  * - Never instantiate uPlot outside useEffect (SSR safety).
@@ -20,6 +24,8 @@ import { SERIES_COLORS, FONT } from './theme';
 interface TimeSeriesChartProps {
   powerSeries: number[];
   hrSeries: number[];
+  cadenceSeries?: number[];
+  elevationSeries?: number[];
   /** Total session duration in seconds — used to label the X axis end. */
   durationSeconds: number;
   height?: number;
@@ -64,6 +70,8 @@ function fmtSecs(s: number): string {
 export function TimeSeriesChart({
   powerSeries,
   hrSeries,
+  cadenceSeries,
+  elevationSeries,
   durationSeconds,
   height = 240,
 }: TimeSeriesChartProps) {
@@ -73,8 +81,10 @@ export function TimeSeriesChart({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const hasPower = powerSeries.length > 1;
-    const hasHR    = hrSeries.length > 1;
+    const hasPower     = powerSeries.length > 1;
+    const hasHR        = hrSeries.length > 1;
+    const hasCadence   = (cadenceSeries?.length ?? 0) > 1;
+    const hasElevation = (elevationSeries?.length ?? 0) > 1;
     if (!hasPower && !hasHR) return;
 
     let cancelled = false;
@@ -90,20 +100,34 @@ export function TimeSeriesChart({
 
       // Align series lengths.
       const len = Math.max(
-        hasPower ? powerSeries.length : 0,
-        hasHR    ? hrSeries.length    : 0,
+        hasPower     ? powerSeries.length      : 0,
+        hasHR        ? hrSeries.length         : 0,
+        hasCadence   ? cadenceSeries!.length   : 0,
+        hasElevation ? elevationSeries!.length : 0,
       );
 
       const xs: number[] = Array.from({ length: len }, (_, i) => i);
       const data: uPlotLib.AlignedData = [xs];
 
-      if (hasPower) data.push(smooth(powerSeries.length === len ? powerSeries : resample(powerSeries, len)));
-      if (hasHR)    data.push(hrSeries.length === len ? hrSeries : resample(hrSeries, len));
+      // Elevation drawn first (back of plot) so other series layer on top.
+      if (hasElevation) data.push(smooth(elevationSeries!.length === len ? elevationSeries! : resample(elevationSeries!, len), 9));
+      if (hasPower)     data.push(smooth(powerSeries.length === len ? powerSeries : resample(powerSeries, len)));
+      if (hasHR)        data.push(hrSeries.length === len ? hrSeries : resample(hrSeries, len));
+      if (hasCadence)   data.push(smooth(cadenceSeries!.length === len ? cadenceSeries! : resample(cadenceSeries!, len)));
 
       const w = containerRef.current.offsetWidth || 640;
 
       // Series — index 0 is always x.
       const series: uPlotLib.Series[] = [{}];
+      if (hasElevation) series.push({
+        label:    'Elevação',
+        stroke:   'rgba(120,120,120,0.45)',
+        width:    1,
+        scale:    'm',
+        spanGaps: true,
+        fill:     'rgba(120,120,120,0.12)',
+        points:   { show: false },
+      });
       if (hasPower) series.push({
         label:    'Potência',
         stroke:   SERIES_COLORS.power,
@@ -125,10 +149,27 @@ export function TimeSeriesChart({
         scale:    'bpm',
         spanGaps: true,
       });
+      if (hasCadence) series.push({
+        label:    'Cadência',
+        stroke:   SERIES_COLORS.cadence,
+        width:    1.2,
+        scale:    'rpm',
+        spanGaps: true,
+        points:   { show: false },
+      });
 
       // Axes.
       const gridStyle = { stroke: '#222222', width: 0.5 };
       const tickStyle = { stroke: '#333333', width: 1, size: 4 };
+
+      // X-axis splits: tick every 5 minutes (300s). For rides over 1h we
+      // step to 10 min to avoid crowding.
+      const stepSecs = len > 3600 ? 600 : 300;
+      const xSplits = (): number[] => {
+        const out: number[] = [];
+        for (let t = 0; t <= len - 1; t += stepSecs) out.push(t);
+        return out;
+      };
 
       const axes: uPlotLib.Axis[] = [
         // X — time
@@ -137,6 +178,7 @@ export function TimeSeriesChart({
           font:   `${FONT.sizeAxis}px ${FONT.family}`,
           ticks:  tickStyle,
           grid:   gridStyle,
+          splits: xSplits,
           values: (_u, vals: number[]) => vals.map(v => fmtSecs(v)),
         },
       ];
@@ -165,12 +207,24 @@ export function TimeSeriesChart({
         size: 42,
       });
 
-      // Scales.
+      // Scales. Cadence and elevation are auto-scaled but have no visible axis —
+      // the data shape is the value, not the absolute numbers.
       const scales: Record<string, uPlotLib.Scale> = {
         x: { time: false, range: [0, len - 1] },
       };
-      if (hasPower) scales['W']   = { auto: true };
-      if (hasHR)    scales['bpm'] = { auto: true };
+      if (hasPower)     scales['W']   = { auto: true };
+      if (hasHR)        scales['bpm'] = { auto: true };
+      if (hasCadence)   scales['rpm'] = { auto: true };
+      if (hasElevation) {
+        // Squish elevation into the bottom ~30% of the plot so it acts as a
+        // background context band instead of competing with the data lines.
+        const elev = elevationSeries!;
+        let min = Infinity, max = -Infinity;
+        for (const v of elev) { if (v < min) min = v; if (v > max) max = v; }
+        if (min === Infinity) { min = 0; max = 1; }
+        const span = max - min || 1;
+        scales['m'] = { auto: false, range: [min - span * 0.05, max + span * 2.3] };
+      }
 
       const opts: uPlotLib.Options = {
         width:  w,
@@ -218,10 +272,12 @@ export function TimeSeriesChart({
       plotRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [powerSeries, hrSeries, durationSeconds, height]);
+  }, [powerSeries, hrSeries, cadenceSeries, elevationSeries, durationSeconds, height]);
 
-  const hasPower = powerSeries.length > 1;
-  const hasHR    = hrSeries.length > 1;
+  const hasPower     = powerSeries.length > 1;
+  const hasHR        = hrSeries.length > 1;
+  const hasCadence   = (cadenceSeries?.length ?? 0) > 1;
+  const hasElevation = (elevationSeries?.length ?? 0) > 1;
 
   return (
     <div>
@@ -236,6 +292,7 @@ export function TimeSeriesChart({
         fontSize:   11.5,
         color:      'var(--fg-2)',
         fontFamily: "'JetBrains Mono'",
+        flexWrap:   'wrap',
       }}>
         {hasPower && (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -247,6 +304,18 @@ export function TimeSeriesChart({
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <i style={{ width: 14, height: 2, background: SERIES_COLORS.hr, display: 'inline-block', borderRadius: 1 }}/>
             FC (bpm)
+          </span>
+        )}
+        {hasCadence && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <i style={{ width: 14, height: 2, background: SERIES_COLORS.cadence, display: 'inline-block', borderRadius: 1 }}/>
+            Cadência (rpm)
+          </span>
+        )}
+        {hasElevation && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <i style={{ width: 14, height: 8, background: 'rgba(120,120,120,0.4)', display: 'inline-block', borderRadius: 1 }}/>
+            Elevação (m)
           </span>
         )}
       </div>

@@ -177,6 +177,7 @@ export default function LivePage() {
   const power           = useBleStore(s => s.power);
   const powerSmoothed   = useBleStore(s => s.powerSmoothed);
   const cadence         = useBleStore(s => s.cadence);
+  const cadenceSmoothed = useBleStore(s => s.cadenceSmoothed);
   const hr              = useBleStore(s => s.hr);
   const hrSmoothed      = useBleStore(s => s.hrSmoothed);
   const speed           = useBleStore(s => s.speed);
@@ -258,9 +259,12 @@ export default function LivePage() {
 
   // ── Smoothed values for primary display ──────────────────────────────────────
   // When smoothingSeconds is 1, the rolling avg buffer is ~1s wide → effectively instant.
-  // We still prefer the smoothed reading over raw `power`/`hr` to avoid sample-to-sample jitter.
-  const powerDisplay = powerSmoothed != null ? Math.round(powerSmoothed) : power;
-  const hrDisplay    = hrSmoothed    != null ? Math.round(hrSmoothed)    : hr;
+  // We still prefer the smoothed reading over raw `power`/`hr`/`cadence` to avoid
+  // sample-to-sample jitter (especially relevant for CSC cadence, where the
+  // per-revolution sampling can produce single-digit dips between revs).
+  const powerDisplay   = powerSmoothed   != null ? Math.round(powerSmoothed)   : power;
+  const hrDisplay      = hrSmoothed      != null ? Math.round(hrSmoothed)      : hr;
+  const cadenceDisplay = cadenceSmoothed != null ? Math.round(cadenceSmoothed) : cadence;
 
   // ── Zone colors (live, matches design-system zones) ──────────────────────────
   const pZone = powerDisplay != null && powerDisplay > 0 ? getPowerZone(powerDisplay, ftp)         : null;
@@ -400,11 +404,11 @@ export default function LivePage() {
 
           <div className="metric">
             <div className="lbl"><span>Cadência</span></div>
-            <div className="v" style={{ color: cadence !== null ? 'var(--fg)' : 'var(--fg-3)' }}>
-              {cadence ?? '—'}
+            <div className="v" style={{ color: cadenceDisplay != null ? 'var(--fg)' : 'var(--fg-3)' }}>
+              {cadenceDisplay ?? '—'}
             </div>
-            <div className="sub"><span>rpm</span></div>
-            {cadence !== null && <div className="bar" style={{ width: `${Math.min(100, cadence / 120 * 100)}%`, background: ACCENT }}/>}
+            <div className="sub"><span>rpm · {smoothingSeconds}s</span></div>
+            {cadenceDisplay != null && <div className="bar" style={{ width: `${Math.min(100, cadenceDisplay / 120 * 100)}%`, background: ACCENT }}/>}
           </div>
 
           {/* HR — zone-coloured */}

@@ -81,6 +81,25 @@ export function prDeltasOf(
   return deltas;
 }
 
+export type PrKind = 'first' | 'improved';
+
+/**
+ * Classify each PR window as a first-ever record vs an improvement over
+ * an existing historical best. Crucial early in an athlete's history when
+ * everything is "first" — surfacing a misleading "+135W" delta on a window
+ * that had no prior record would be wrong framing.
+ */
+export function classifyPrs(
+  historicalBest: BestPower,
+  prs: MmpKey[],
+): Partial<Record<MmpKey, PrKind>> {
+  const out: Partial<Record<MmpKey, PrKind>> = {};
+  for (const k of prs) {
+    out[k] = (historicalBest[k] ?? 0) > 0 ? 'improved' : 'first';
+  }
+  return out;
+}
+
 /**
  * Compare two sessions on the same route.
  */
@@ -123,11 +142,16 @@ export function buildHighlight(
   comparison: ComparisonResult,
   prs: MmpKey[],
   prDeltas: Partial<Record<MmpKey, number>>,
+  prKinds: Partial<Record<MmpKey, PrKind>> = {},
 ): string | null {
   if (prs.length > 0) {
-    const top = prs[0];
+    // Prefer surfacing an "improved" PR over a "first" one — improvements
+    // are more meaningful as a headline.
+    const top = prs.find(k => prKinds[k] === 'improved') ?? prs[0];
+    const kind = prKinds[top] ?? 'first';
     const delta = prDeltas[top];
     const label = labelOfMmp(top);
+    if (kind === 'first') return `Primeiro registro de ${label}`;
     if (delta !== undefined && delta > 0) return `Novo PR de ${label} (+${delta}W)`;
     return `Novo PR de ${label}`;
   }

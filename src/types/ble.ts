@@ -105,6 +105,8 @@ export interface BleState {
   powerSmoothed: number | null;
   /** Rolling-average HR over the configured smoothing window. Null when buffer is empty. */
   hrSmoothed:    number | null;
+  /** Rolling-average cadence over the configured smoothing window. Null when buffer is empty. */
+  cadenceSmoothed: number | null;
   /** Smoothing window (seconds) applied to on-screen primary values. Default 3. */
   smoothingSeconds: 1 | 3 | 5 | 10;
   /** Closed laps (manual + auto). */

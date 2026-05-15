@@ -98,7 +98,7 @@ export default function SummaryPage() {
     },
     created_at: startedAtIso,
     routes: route
-      ? { id: route.id, name: route.name, location: route.location, distance_km: route.distance_km, elevation_m: route.elevation_m }
+      ? { id: route.id, name: route.name, location: route.location, distance_km: route.distance_km, elevation_m: route.elevation_m, gpx_data: route.gpx_data ?? null }
       : null,
   }), [
     athlete?.id, route, startedAtIso, elapsed, aggregates, distanceKm, ftp, devices,

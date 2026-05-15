@@ -56,8 +56,9 @@ export class AntEngine {
   private port: WebSerialPort | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private buf: number[] = [];
-  // CSC delta state
-  private cscPrev = { rev: 0, time: 0, init: false };
+  // CSC delta state — includes wall-clock time of the previous broadcast
+  // so we can reject the post-coast phantom that surfaces as ~10 rpm.
+  private cscPrev = { rev: 0, time: 0, wallTime: 0, init: false };
 
   constructor(cb: AntCallbacks) {
     this.cb = cb;
@@ -102,6 +103,9 @@ export class AntEngine {
     this.writer = null;
     try { await this.port?.close(); } catch { /* ignore */ }
     this.port = null;
+    // Re-baseline CSC delta state — a reconnect should not inherit the
+    // stale (rev, time) snapshot from before the disconnect.
+    this.cscPrev = { rev: 0, time: 0, wallTime: 0, init: false };
     this.cb.onDisconnect();
     this.cb.onLog('Dongle ANT+ desconectado.', 'warn');
   }
@@ -220,16 +224,24 @@ export class AntEngine {
     // Crank revolution data: bytes 4-5 = event time (1024 Hz), bytes 6-7 = cumulative revs
     const crankTime = data[4] | (data[5] << 8);
     const crankRevs = data[6] | (data[7] << 8);
+    const now       = Date.now();
 
     if (!this.cscPrev.init) {
-      this.cscPrev = { rev: crankRevs, time: crankTime, init: true };
+      this.cscPrev = { rev: crankRevs, time: crankTime, wallTime: now, init: true };
       return;
     }
-    const dRev  = (crankRevs - this.cscPrev.rev  + 65536) % 65536;
-    const dTime = (crankTime - this.cscPrev.time + 65536) % 65536;
-    this.cscPrev = { rev: crankRevs, time: crankTime, init: true };
+    const dRev    = (crankRevs - this.cscPrev.rev  + 65536) % 65536;
+    const dTime   = (crankTime - this.cscPrev.time + 65536) % 65536;
+    const wallGap = now - this.cscPrev.wallTime;
+    this.cscPrev  = { rev: crankRevs, time: crankTime, wallTime: now, init: true };
 
-    if (dTime > 0) {
+    // Post-coast phantom rejection: a single new revolution after a long
+    // silence yields dTime ≈ coast duration → e.g. 1 / 5.5 s ≈ 11 rpm.
+    // Drop the sample and let the next broadcast re-establish cadence.
+    const dTimeMs    = (dTime * 1000) / 1024;
+    const phantomGap = dRev <= 1 && (dTimeMs > 2000 || wallGap > 2500);
+
+    if (dTime > 0 && !phantomGap) {
       const cad = Math.round(dRev / dTime * 1024 * 60);
       if (cad >= 0 && cad < 300) {
         this.cb.onChannelUpdate('csc', 'found');
