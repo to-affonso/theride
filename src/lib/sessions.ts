@@ -39,3 +39,36 @@ export async function loadSession(id: string): Promise<Session | null> {
   if (error || !data) return null;
   return data as Session;
 }
+
+export interface SessionLapRow {
+  lap_number:     number;
+  type:           'auto' | 'manual';
+  started_at_s:   number;
+  duration_s:     number;
+  distance_km:    number;
+  avg_power:      number;
+  avg_hr:         number;
+  avg_cadence:    number;
+  avg_speed:      number | null;
+  elevation_gain: number;
+}
+
+/**
+ * Closed laps for a session (auto + manual), ordered by lap_number.
+ * Returns [] if none persisted — callers should synthesize a single lap
+ * covering the whole session in that case.
+ */
+export async function loadSessionLaps(sessionId: string): Promise<SessionLapRow[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('session_laps')
+    .select('lap_number, type, started_at_s, duration_s, distance_km, avg_power, avg_hr, avg_cadence, avg_speed, elevation_gain')
+    .eq('session_id', sessionId)
+    .order('lap_number', { ascending: true });
+
+  if (error) {
+    console.error('Erro ao carregar laps:', error.message);
+    return [];
+  }
+  return (data ?? []) as SessionLapRow[];
+}

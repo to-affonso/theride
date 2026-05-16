@@ -11,9 +11,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAthleteStore } from '@/stores/athleteStore';
 import { Session } from '@/types';
-import { loadSession, loadAthleteSessions } from '@/lib/sessions';
+import { loadSession, loadAthleteSessions, loadSessionLaps, SessionLapRow } from '@/lib/sessions';
 import { findLastAttempt, aggregateHistoricalBest } from '@/lib/comparison';
 import { SessionDetail } from '@/components/session/SessionDetail';
+import { downloadSessionAsFit, lapsFromDbRows } from '@/lib/fit/download';
 
 export default function HistoryDetailPage() {
   const router  = useRouter();
@@ -22,11 +23,13 @@ export default function HistoryDetailPage() {
 
   const [session, setSession] = useState<Session | null | 'not-found'>(null);
   const [allSessions, setAllSessions] = useState<Session[]>([]);
+  const [lapRows, setLapRows] = useState<SessionLapRow[]>([]);
 
   // Load the session
   useEffect(() => {
     if (!params?.id) return;
     loadSession(params.id).then(s => setSession(s ?? 'not-found'));
+    loadSessionLaps(params.id).then(setLapRows);
   }, [params?.id]);
 
   // Load the athlete's full history (for comparison context)
@@ -73,6 +76,19 @@ export default function HistoryDetailPage() {
     );
   }
 
+  function handleExportFit() {
+    if (session === null || session === 'not-found') return;
+    try {
+      downloadSessionAsFit({
+        session,
+        laps: lapsFromDbRows(lapRows),
+      });
+    } catch (err) {
+      console.error('Falha ao exportar .FIT:', err);
+      alert('Não foi possível gerar o arquivo .FIT. Veja o console para detalhes.');
+    }
+  }
+
   return (
     <SessionDetail
       session={session}
@@ -81,9 +97,10 @@ export default function HistoryDetailPage() {
       historicalBest={historicalBest}
       mode="history"
       headerActions={
-        <button className="btn" onClick={() => router.push('/history')}>
-          Voltar
-        </button>
+        <>
+          <button className="btn" onClick={handleExportFit}>Exportar .FIT</button>
+          <button className="btn" onClick={() => router.push('/history')}>Voltar</button>
+        </>
       }
     />
   );

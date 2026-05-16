@@ -23,6 +23,7 @@ import {
   aggregateHistoricalBest,
 } from '@/lib/comparison';
 import { SessionDetail } from '@/components/session/SessionDetail';
+import { downloadSessionAsFit, lapsFromInMemory } from '@/lib/fit/download';
 
 const TEMP_SESSION_ID = 'in-flight';
 
@@ -38,6 +39,7 @@ export default function SummaryPage() {
   const sessionCadenceSeries = useBleStore(s => s.sessionCadenceSeries);
   const sessionSpeedSeries   = useBleStore(s => s.sessionSpeedSeries);
   const devices              = useBleStore(s => s.devices);
+  const inMemoryLaps         = useBleStore(s => s.laps);
   const resetSession         = useBleStore(s => s.resetSession);
   const route   = useRouteStore(s => s.selectedRoute);
   const athlete = useAthleteStore(s => s.athlete);
@@ -174,6 +176,20 @@ export default function SummaryPage() {
     router.push('/route');
   }
 
+  function handleExportFit() {
+    try {
+      downloadSessionAsFit({
+        session: inMemorySession,
+        laps:    lapsFromInMemory(inMemoryLaps, startedAtIso),
+      });
+    } catch (err) {
+      console.error('Falha ao exportar .FIT:', err);
+      alert('Não foi possível gerar o arquivo .FIT. Veja o console para detalhes.');
+    }
+  }
+
+  const canExport = elapsed >= 5 && sessionPowerSeries.length > 0;
+
   return (
     <SessionDetail
       session={inMemorySession}
@@ -183,7 +199,7 @@ export default function SummaryPage() {
       mode="post-ride"
       headerActions={
         <>
-          <button className="btn" title="Em breve">Exportar .FIT</button>
+          <button className="btn" onClick={handleExportFit} disabled={!canExport}>Exportar .FIT</button>
           <button className="btn primary" onClick={handleHome}>Voltar para início</button>
         </>
       }

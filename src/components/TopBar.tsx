@@ -27,7 +27,7 @@ const IconLogout = ({ size = 16 }: { size?: number }) => (
 type NavItem = { label: string; href?: string; match: (pathname: string) => boolean };
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Início',        href: undefined,    match: () => false },
+  { label: 'Início',        href: '/home',      match: p => p === '/home' },
   { label: 'Rotas',         href: '/route',     match: p => p === '/route' || p.startsWith('/route/') },
   { label: 'Histórico',     href: '/history',   match: p => p === '/history' || p.startsWith('/history/') },
   { label: 'Configurações', href: '/settings',  match: p => p === '/settings' },
@@ -89,7 +89,7 @@ export function TopBar() {
     <>
       <header className="chrome">
         <div className="chrome-left">
-          <Link href="/route" className="brand" aria-label="The Ride">
+          <Link href="/home" className="brand" aria-label="The Ride">
             <Image
               src="/images/theRideLogo.svg"
               alt="The Ride"
